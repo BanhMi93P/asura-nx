@@ -2,7 +2,8 @@
 
 The base ships switches that are off by default although they help somewhere: a fix that one game needs but that
 breaks another game's picture, a faster form that is not exact, a speed-up the console measured as slower or as no
-gain, or a trial the emulator stalls with. This page sorts them by why they are off. Every table has a **Speed**
+gain, a trial the emulator stalls with, or (section 5) an exact fix or accuracy option a port brought from another
+port, off at the user's word until a game turns it on. This page sorts them by why they are off. Every table has a **Speed**
 column: what is known about the switch's speed, and **Slower** where a console run measured it slower.
 
 **The rule (the user, 2026-11-11):** a key that breaks the graphics of a specific game is OFF in the base by default.
@@ -73,7 +74,7 @@ different may measure them again.
 | `banjo_renut_replay_lookahead` | The next replayed op's lookups prefetched while a draw is drawn. | **Slower:** render thread +2.15 ms a frame (2026-10-27) |
 | `banjo_renut_replay_stream_shaders` | The shader memo's sets prefetched two ops ahead instead of one. | **Slower:** +0.7 ms a frame, 4 of 5 periods worse (run c4, 2026-10-27) |
 | `banjo_renut_texture_slot_skip` | A draw that changes some texture slots keeps the others without a full FillTextures. | **Slower:** render thread +0.64 ms a frame (night_final, 2026-10-28) |
-| `sasrt_gpu_tiled_cache` (A/B 102) | Maxwell's tiled caching (binning), which NVN uses and deko3d leaves off. | **Slower:** +3.96 ms of GPU a frame in vivapinata-nx's garden (19.0 -> 17.7 fps, in-run A/B, run c7, 2026-11-12; its per-item GPU times read faster, but binning moves the work past their timestamps: the frame rate is the measure); sasrt-nx found it no better in its race. The picture was not judged |
+| `sasrt_gpu_tiled_cache` (A/B 102) | Maxwell's tiled caching (binning), which NVN uses and deko3d leaves off. | **Slower:** +3.96 ms of GPU a frame in vivapinata-nx's garden (19.0 -> 17.7 fps, in-run A/B, run c7, 2026-11-12; its per-item GPU times read faster, but binning moves the work past their timestamps: the frame rate is the measure); sasrt-nx found it no better in its race. The picture was not judged tw2de_nx runs it on: its console, prologue 23.7-23.8 -> 24.9-25.2 fps, GPU 40.4 -> 35.8-36.8 ms a frame (its RGBA16F and 64-bit depth passes are bandwidth bound); kept off here by these two measurements (port 145, 2026-11-16) |
 
 ### 3b. No gain on the console
 
@@ -105,8 +106,37 @@ different may measure them again.
 | `banjo_deko3d_skin_once`, `banjo_deko3d_light_branch`, `banjo_deko3d_gpr32` | GPU A/Bs of Banjo's fur and lit shaders: skinning once a frame, per-light branches, a 32-register cap. | The same pixels; whether faster is the console's to say (their configs/*_on.toml). Light branch and gpr32 act only on the pixel shaders Banjo's lists name (tools/lightbranch_shaders.txt, tools/gpr32_shaders.txt): in another game they change no shader, so they are no A/B targets there (vivapinata-nx, 2026-11-12: its in-run A/B halves of them ran at 2 fps, every pipeline looked up again as the variant key changed). | Not measured on the console |
 | `banjo_gpu_zcull_greater` | Asks the driver for ZCULL in the GREATER direction (reversed depth). | A console trial; the picture should be the same. It acts only on the Mesa/NVK path (setenv NVK_ZCULL for banjo-nx's patched NVK); on deko3d it does nothing, and nothing is needed there: dkCmdBufClearDepthStencil writes SET_ZCULL_DIR_FORMAT itself (method 0x36F), GREATER when the depth clear value is under 0.5 and LESS otherwise, so a reversed-depth game that clears depth to 0 already culls in its direction (vivapinata-nx, from libdeko3d.a's disassembly, 2026-11-12). | Not measured |
 
+## 5. tw2de_nx's fixes and accuracy options, off at the user's word
+
+Ports 143-147 (2026-11-16) took these from tw2de_nx (recomp-nx's The Witcher 2 port, which grew from banjo-nx through
+the FINAL FANTASY XIII ports). The user: "Do 1, 2, 3 make sure its off by default though", then "can you port the speed
+ups as on by default": its speed-ups are on (docs/ultimate-fixes.md, rows 143-147), its fixes and accuracy options
+below are off until a game turns one on and checks itself. Most are exact (the 360's results, found by tw2de_nx with
+Xenia's hardware-recorded instruction tests or in its games). A codegen key goes in the game's codegen toml; a CMake
+switch needs a rebuild (and a fresh PGO profile).
+
+| Switch | What it does | Why it is off | Speed |
+|---|---|---|---|
+| `kernel_u64_args_whole` (port 143) | An export's 64-bit integer argument read whole. | Exact; off at the user's word (the base passes only the low word: XamFormatDateString / XamFormatTimeString's FILETIME, XamNotifyCreateListener's mask, an XUID). | None |
+| `xam_swap_disc_signal` (port 143) | XamSwapDisc sets the completion event the game waits on (every disc is the one game folder). | Exact; off at the user's word (FINAL FANTASY XIII waited for ever at "insert disc 2"). | None |
+| `kernel_scatter_read_offset_zero` (port 143) | NtReadFileScatter at offset 0 reads at 0 (only -1 / -2 mean the file's position). | Exact; off at the user's word (from nx-mod/rexglue-sdk-nx). | None |
+| `TW2DE_FNMADD_SIGN` (CMake, port 144) | fnmadd / fnmsub and their single forms with the PowerPC's sign of zero and NaN (tools/fnm_sign.py's REX_FNEG_FUSED, sdk/include/rex/ppc/fpu_fma.h). | Exact; off at the user's word (GCC folds -std::fma into FNMADD / FMSUB: +0 where the 360 gives -0, a NaN negated; Xenia's tests: 160 cases). | An instruction or two more a site (Katamari: 272 sites) |
+| `TW2DE_VSHIFT_PER_BYTE` (CMake, port 144) | vsl / vsr with each byte's own shift count, as the hardware (rex/ppc/intrinsics.h). | Exact; off at the user's word (the ISA's uniform counts give the same either way; Xenia's tests: 453 of 475 vsl cases with mixed counts). | Five NEON instructions; the default vsl goes through memory |
+| `vcmpbfp_cr6_exact` (codegen, port 144) | vcmpbfp.'s CR6 only "eq" (all within bounds). | Exact; off at the user's word (the mask form set "lt" when every element was out of bounds). | None |
+| `vupkd3d_exact` (codegen, port 144) | vupkd3d128: NORMPACKED64 from the right doubleword with its biases; the most negative field a quiet NaN in NORMSHORT2 / NORMSHORT4 / NORMPACKED32's y and z. | Exact; off at the user's word (Xenia's x64 unpack, from nx-mod/rexglue-sdk-nx; NORMSHORT2's NEON form, tools/vupkd3d_neon.py, takes only the default form). | A compare a lane |
+| `fpscr_moves_exact` (codegen, port 144) | mtfsf's field mask in the PowerPC's order, mffs's upper word 0xFFF80000, builders for mtfsfi / mtfsb0 / mtfsb1 / mcrfs. | Exact; off at the user's word (`mtfsf 1, f` did not set the rounding mode; Katamari uses only `mtfsf 255`, the same both ways). | None |
+| `extra_instructions` (codegen, port 144) | Builders for ~43 instructions the generator traps on (sdk/src/codegen/builders/extra.cpp: vaddcuw ... vpkpx, lmw, ldbrx, stdbrx, rotld, mcrxr, mfvscr, mtvscr, the OE forms; isync, icbi, mtmsr, lvsl128 / lvsr128, the LRU-hint vector loads and stores). | Exact; off at the user's word: a game with none of them sees no change. | None |
+| `vmx_360_estimates` (codegen, port 144) | vrefp, vrsqrtefp, vexptefp, vlogefp, fres and frsqrte from the hardware's tables, bit for bit (rex/ppc/vmx_est360.h: Xenia's console tables, xenia-canary pull request #1342; xenia-edge's for the square roots). | Exact to the console, but not the base's default (the exact division and square root, or port 72's NEON estimates); off at the user's word. | Slower than port 72's forms (a table look-up per lane) |
+| `vmx_dot_360` (codegen, port 144) | vmsum3fp128 / vmsum4fp128 with the console's rounding (float64 sums truncated to single). | Exact to the console; off at the user's word. With it, `vmx_360_estimates` or `exact_fp` on, the hand-written natives (app/src/cpu/hot/hand.txt) still compute the default forms: the guard finds their copies (and the copies that call them) one unit off and turns them off (Katamari: 19 copies, 2026-11-16), so a game that turns these on brings its hand natives along. | Slower (a scalar double sum) |
+| `exact_fp`, `exact_fp_functions` (codegen, port 144) | The FPU and vector float results the 360 gives where the host's differ (rex/ppc/fpu_exact.h: the first NaN operand in the 360's order, QNaN for an invalid operation, the single-precision instructions with a double denormal operand); everywhere, or in the listed functions. | Exact; off at the user's word (a game's code with valid inputs never sees a difference). | A test of each result |
+| `exact_fp_log`, `fp_origin_log` (codegen, port 144; diagnostics) | Every instruction exact_fp would change reported once with its function (the line for exact_fp_functions); every float instruction that makes a NaN or an infinity of finite operands reported with the guest's callers (sdk/src/core/ppc_exact_log.cpp). | Diagnostics (Katamari's PC run, 2026-11-16: 35 instructions and 18 origins reported, among them an fdivs 1/0 at 0x82282D80 whose fmuls then gave x86's negative default NaN, FFF8..., where the 360 gives 7FF8...). | A test of each result |
+| `banjo_renut_fetch_filters` (port 145) | A texture is sampled with the filters its shader's fetch instructions give (mag / min / mip, anisotropy) where they give one, not only the fetch constant's (render/fetch_filters.cpp, read from the microcode when a shader is made). | Exact; off at the user's word (FINAL FANTASY XIII's light shafts: a linear blur of a point-sampled mask came out stepped); the draws whose shaders give them take the full draw path. | Katamari's shaders give none |
+| `crt_xmemcpy_as_memmove` (port 146) | The native XMemCpy (which a game maps its own block copy to) is a memmove. | Exact; off at the user's word (a game's forward block copy may be called with overlapping ranges, which memcpy leaves undefined; from nx-mod/rexglue-sdk-nx). | None |
+| `xconfig_host_time_zone` (port 147) | XConfig's TIME_ZONE_BIAS is the console's time zone (its offset now, DST included), so a game's local time is the player's. | Off at the user's word (the base answered 0: every game showed UTC). | None |
+
 ## Keeping this page
 
 When a port reports that a key breaks its picture (with a comparison against the reference), its default goes to false
 under the rule above, it gets a row in section 1 and in docs/ultimate-fixes.md, and the port that needs it is told to
-set it in its own toml. A switch measured slower on the console goes in 3a with its numbers.
+set it in its own toml. A switch measured slower on the console goes in 3a with its numbers. A fix or accuracy option
+taken from another port and left off at the user's word goes in section 5, with what it fixes and in which game.

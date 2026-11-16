@@ -215,3 +215,13 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
 - Port 141 (from blur-nx) makes the guard take a NaN that differs only in its sign as the same.
 - Port 142 removes `kernel_timestamp_timer_on_import` (port 139's M-38) at the user's word: the timestamp
   timer runs from start-up again in every game.
+- Port 143 (from tw2de_nx) drops Xenia's 100 ms wait on saves and dialogs (with the event reset it needs) and
+  throttles XMP polling; whole 64-bit arguments, the disc swap's event and the scatter read are off.
+- Port 144 (from tw2de_nx) yields at the Xenon's spin hints and unpacks NORMSHORT2 with NEON; its exact FPU and
+  VMX forms, the 360's estimate tables, exact_fp and the missing instructions are off by default.
+- Port 145 (from tw2de_nx) redeems quiet vertex streams, keeps unused render targets, uploads only the written
+  rows of dynamic textures, uses the GPU's 16-bit formats and presents from a helper thread.
+- Port 146 (from tw2de_nx) releases mutants without their mutex when nobody waits and reads files in 4 MB
+  pieces, host buffers directly.
+- Port 147 (from tw2de_nx) adds the PowerPC instruction test NRO (Xenia's hardware-recorded tests) and the
+  console's time zone (off).

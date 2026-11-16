@@ -429,6 +429,13 @@ REXCVAR_DEFINE_BOOL(banjo_deko3d_push_constants_verify, false, "Banjo/Diagnostic
                     "banjo_deko3d_push_constants: after every draw's updates, checks that the model of the uniform "
                     "buffers holds the guest's value of every register the shaders read (and their literals), and "
                     "logs a draw where it does not (a test: slower)");
+// renut-ultimate (2026-11-16, port 145; tw2de_nx's tw2de_async_present of 2026-11-13, ON at the user's word: "port the
+// speed ups as on by default"). Read by name in sdk/src/ui/switch_perf.cpp at the first present.
+REXCVAR_DEFINE_BOOL(banjo_async_present, true, "Banjo/Enhancements",
+                    "Switch (tw2de_nx): the window's two binder calls of a present (queue the image, dequeue the next "
+                    "one: 2.7 ms a frame in tw2de_nx's heaviest stretch) are made by a helper thread, so the renderer's "
+                    "feed thread records the next frame instead of waiting for the compositor's answers. The same calls "
+                    "in the same order. false: on the presenting thread, as before");
 REXCVAR_DEFINE_BOOL(banjo_deko3d_kick_submit, true, "Banjo/Enhancements",
                     "deko3d renderer (2026-10-19, input latency): at the game's kicks (several a frame) the command "
                     "list recorded so far is ended and handed to the GPU at the next kick, instead of the whole frame "

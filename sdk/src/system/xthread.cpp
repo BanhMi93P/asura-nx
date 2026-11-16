@@ -85,6 +85,12 @@ thread_local uint8_t t_guest_kind = 0;
 }  // namespace
 #endif
 
+// renut-ultimate (2026-11-16, port 144; tw2de_nx's rex_spin_hint of 2026-10-22): the Xenon's spin-wait hints with the
+// codegen option spin_hint_yield (off by default; rex/ppc/context.h). The base's yield: on the Switch MaybeYield, whose
+// backoff (switch_yield_backoff) turns a long run of them into short sleeps, so a spinning thread gives its core to the
+// one it waits for.
+extern "C" void rex_spin_hint(void) { rex::thread::MaybeYield(); }
+
 namespace rex::system {
 
 const uint32_t XAPC::kSize;

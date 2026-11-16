@@ -107,6 +107,9 @@ def main():
     run(tool('hot_layout.py'), '--gen', gen, '--restore')
     # sasrt-nx (2026-11-12, its idea 2; port 121): the forwarded stack-slot vector loads out too (put back below).
     run(tool('stack_forward.py'), '--gen', gen, '--restore')
+    # renut-ultimate (2026-11-16, port 144): the negated fused multiply-adds' macro out too (single_floats.py and
+    # fma_single.py read the forms it wraps; put back below).
+    run(tool('fnm_sign.py'), '--gen', gen, '--restore')
     run(tool('pch_no_volatile.py'), pch)
     run(tool('indirect_calls.py'), '--gen', gen, '--promote', PROMOTIONS)
     # REQUIRED with pch_no_volatile.py: without barriers GCC turns guest polling loops into infinite loops.
@@ -176,6 +179,10 @@ def main():
     # single precision, as the Xenon does (sdk/include/rex/ppc/fma_single.h; not bit-exact to the double rounding the
     # generator wrote; CMake BLUR_FMADDS_SINGLE=OFF gives it back). Before the copies, so they take the same form.
     run(tool('fma_single.py'), '--gen', gen)
+    # renut-ultimate (2026-11-16, port 144; tw2de_nx's fnmadd / fnmsub fix): the negated fused multiply-adds as
+    # REX_FNEG_FUSED(...), the plain negation by default (the same code); CMake TW2DE_FNMADD_SIGN=ON (off by default)
+    # gives the PowerPC's sign of zero and NaN (sdk/include/rex/ppc/fpu_fma.h). After fma_single.py, before the copies.
+    run(tool('fnm_sign.py'), '--gen', gen)
     # sasrt-nx (2026-11-12, its docs/cpu-moonshots-1112.md idea 2; port 121): a vector load of a stack slot that four
     # 4-byte stores of the same block just wrote takes the stored values (the stores stay; REX_STACK_FWD4 checks the
     # address, REX_STACK_FWD_VERIFY compares with the real load in the hooked builds). Before the copies, so they take

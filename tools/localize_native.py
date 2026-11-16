@@ -174,7 +174,7 @@ def live_out_keep(name):
 BULK_SLOT = 9999  # past PPCContext::host_counters: the guard's countdown is the hook's own (banjo_hot_guest.h)
 HAND = os.path.join(APP, 'src', 'cpu', 'hot', 'hand.txt')
 IMAGE_BASE = 0x82000000
-INDEX_FORMAT = 10  # raise when summarise() changes: the cached index is rebuilt (5: carded vector stores; 6, 7: inline leaves; 8: r1 mirror, 2026-10-23; 9: atomics, sasrt-nx 2026-11-10; 10: promoted fallbacks counted, blur-nx 2026-11-13)
+INDEX_FORMAT = 12  # raise when summarise() changes: the cached index is rebuilt (5: carded vector stores; 6, 7: inline leaves; 8: r1 mirror, 2026-10-23; 9: atomics, sasrt-nx 2026-11-10; 10: promoted fallbacks counted, blur-nx 2026-11-13; 12: rex::ppc::exact:: helpers and rex_spin_hint known, port 144)
 # blur-nx (2026-11-13, M-25 of docs/cpu-moonshots-50-1113.md and its audit): a promoted indirect call (tools/
 # indirect_calls.py: `if (REX_PROMOTED_IS(ctr, T)) { sub_T(ctx, base); } else { REX_CALL_INDIRECT_FUNC_AT(..); }`) no
 # longer keeps a function out of a closure: its fallback is an open call like any other (the copy's running form
@@ -204,10 +204,12 @@ GOTO = re.compile(r'\bgoto loc_[0-9A-F]{8};')
 # Every name the generator writes in front of a parenthesis (tools/loop_locals.py's list): anything else is a
 # port's own host function (a mid-asm hook), which a copy cannot contain.
 NAME = re.compile(r'([A-Za-z_][A-Za-z0-9_:]*(?:<[A-Za-z0-9_ ]+>)?)\s*\(')
-KNOWN = re.compile(r'^(?:REX_\w+|simde_\w+|__builtin_\w+|rex::ppc::\w+|std::fma|std::bit_cast<\w+>|double|float|sqrt|'
+KNOWN = re.compile(r'^(?:REX_\w+|simde_\w+|__builtin_\w+|rex::ppc::\w+|rex::ppc::exact::\w+|std::fma|std::bit_cast<\w+>|double|float|sqrt|'
                    r'memset|if|for|switch|sizeof|u?int(?:8|16|32|64)_t|u(?:8|16|32|64)|size_t|int|short|char|'
                    r'static_cast<[A-Za-z0-9_ ]+>|compare(?:<\w+>)?|setFromMask|(?:en|dis)ableFlushMode(?:Unconditional)?|'
-                   r'flushModeIs(?:On|Off)|ppc_trap|simde__m128i?)$')
+                   r'flushModeIs(?:On|Off)|ppc_trap|simde__m128i?|'
+                   # renut-ultimate (port 144): the spin-wait hints' yield (spin_hint_yield; no guest state)
+                   r'rex_spin_hint)$')
 # Forms that make a function unfit for a copy and for a closure (see the docstring).
 SPECIAL = re.compile(r'\b(REX_GUEST_CAS|reserved|REX_MM_(?:STORE|LOAD)_\w+|ppc_setjmp|ppc_longjmp|REX_ENTER_GLOBAL_LOCK|'
                      r'REX_LEAVE_GLOBAL_LOCK|REX_CHECK_GLOBAL_LOCK|REX_QUERY_TIMEBASE|REX_UNIMPLEMENTED|'
@@ -671,13 +673,19 @@ def strip_windows_only(text):
 
 
 class Hooks:
-    """What an app or SDK hook may replace: every 82xxxxxx address and every identifier their sources' code mentions
+    """What an app or SDK hook may replace: every 82xxxxxx (83xxxxxx: port 144) address and every identifier their sources' code mentions
     (comments and __imp__ references left out, as in sa2-nx's tool: a comment hooks nothing and __imp__sub_X is the
     original). The functions of localized.txt are not in it: a copy touches no more than its original."""
 
     def __init__(self, natives):
         self.addresses = set()
         self.words = set()
+        # renut-ultimate (2026-11-16, port 144; tw2de_nx's): 83xxxxxx too when the game's code runs there (its function
+        # table has entries at 0x83000000 and above: TW2's sub_833C2518 ...); a tree without them reads as before.
+        addr_re = r'(?<![0-9A-Fa-f])(82[0-9A-Fa-f]{6})(?![0-9A-Fa-f])'
+        for p in glob.glob(os.path.join(GEN, '*_init.cpp')):
+            if re.search(r'\{ 0x83[0-9A-Fa-f]{6},', open(p, encoding='utf-8', errors='ignore').read()):
+                addr_re = r'(?<![0-9A-Fa-f])(8[23][0-9A-Fa-f]{6})(?![0-9A-Fa-f])'
         roots = [os.path.join(APP, 'src'), os.path.join(ROOT, 'sdk', 'src'), os.path.join(ROOT, 'sdk', 'include')]
         # sasrt-nx (2026-11-11, port 74; its idea 29): not app/config/renut_gpu_funcs.toml any more. It is a game's map of
         # Direct3D's names (a reference: no code hooks through it; this base's Renut hooks Direct3D by address,
@@ -704,7 +712,7 @@ class Hooks:
             if not toml:
                 text = strip_windows_only(text)  # blur-nx (2026-11-13, M-28)
             text = re.sub(r'__imp__\w+', ' ', text)
-            self.addresses.update(m.upper() for m in re.findall(r'(?<![0-9A-Fa-f])(82[0-9A-Fa-f]{6})(?![0-9A-Fa-f])', text))
+            self.addresses.update(m.upper() for m in re.findall(addr_re, text))
             if not toml:
                 self.words.update(re.findall(r'\b[A-Za-z_]\w{5,}\b', text))
         self.natives = set(natives)
