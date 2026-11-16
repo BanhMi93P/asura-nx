@@ -213,3 +213,5 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
 - Port 140 (from blur-nx) adds the near-exact switches (off) with their censuses, store cards by the copies'
   rule, and leaves out FPSCR writes that change nothing.
 - Port 141 (from blur-nx) makes the guard take a NaN that differs only in its sign as the same.
+- Port 142 removes `kernel_timestamp_timer_on_import` (port 139's M-38) at the user's word: the timestamp
+  timer runs from start-up again in every game.
