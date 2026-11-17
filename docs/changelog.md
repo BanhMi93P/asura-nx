@@ -239,3 +239,8 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
   interval, call-count switch and audout counters, and deko3d's crash breadcrumbs.
 - Port 154 (from blur-nx) adds its census, signature, crash-report and RenderDoc tools, and corrects ports
   125 and 145.
+- Port 155 (from blur-nx) scales a target's colour by its exponent bias as well as its alpha, and keeps a
+  sample-grid resolve from being skipped as unchanged (Blur's menu backdrop). Take it with a shader package
+  made again (tools/switch_shaders.ps1).
+- Port 156 (from blur-nx) counts the game frames at Swap, so the captures' video works in a game that
+  swaps without Present.
