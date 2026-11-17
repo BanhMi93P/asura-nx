@@ -179,6 +179,7 @@ endif()
 set(RENUT_SOURCES
     src/main.cpp
     src/katamari_keys.cpp
+    src/blur_small_alloc.cpp  # blur-nx (2026-11-17, #220; port 151): small C++ allocations per thread (Switch; 32 MB)
     # katamari-nx (2026-10-31): DLC packages in the "dlc" folder next to the NRO installed at start (reNut upstream's).
     src/renut_engine/dlc_install.cpp
 	src/renut_engine/FPS.cpp
