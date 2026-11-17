@@ -244,3 +244,5 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
   made again (tools/switch_shaders.ps1).
 - Port 156 (from blur-nx) counts the game frames at Swap, so the captures' video works in a game that
   swaps without Present.
+- Port 157 (from blur-nx) sends a GPU submission that nvservices refuses again in halves instead of
+  aborting (Blur's map-load crashes, a Timeout on a full GPFIFO ring).
