@@ -925,6 +925,49 @@ void D3DVertexShader_Bind_hook(u32 shader_va, u32 declaration_va, mapped_u32 str
   render_thread::Queue([binding] { ApplyBindingLocked(binding); });
 }
 
+// Port 173 (from rehatched-nx, its commit 9d93d896): D3DVertexShader_Bind in the first release's form, (pShader, Flags,
+// pDecl, pStreamStrides, Index), at XDK 2.0.9407 and 11164 (rehatched-nx's sub_82280DE8 reads the declaration's highest
+// stream at r5 + 28 and the strides from r6). Unhooked, the game's own Bind read a declaration record of
+// CreateVertexDeclaration's hook as its own and ran off the stack. Not bound here (Katamari's XDK has the three-argument
+// form above); a port at such an XDK binds it at its address in place of D3DVertexShader_Bind_hook:
+//   BANJO_RENUT_HOOK(sub_<its address>, D3DVertexShader_Bind_flags_hook);
+[[maybe_unused]] void D3DVertexShader_Bind_flags_hook(u32 shader_va, u32 /*flags*/, u32 declaration_va,
+                                                      mapped_u32 stream_strides, u32 /*index*/) {
+  D3DVertexShader_Bind_hook(shader_va, declaration_va, stream_strides);
+}
+
+// Port 173 (from rehatched-nx, its commit 4b3295a9: Angry Birds' crash at the end of level 1): void
+// D3DVertexDeclaration_GetDeclaration(D3DVertexDeclaration*, D3DVERTEXELEMENT9 *pElements, UINT *pNumElements). The XDK's
+// copies min(count, *pNumElements) elements from the declaration (its count at +24, its elements at +52), adds
+// D3DDECL_END when there is room and stores count + 1. Renut's declarations are records whose guest block holds no
+// elements: unhooked, a game that asks for a declaration's elements (Angry Birds' mesh code) got an array of zeros with
+// no end marker, and its search for a usage ran off the stack. This answers from the record as the XDK does, with
+// D3DDECL_END built here (Stream 0xFF, Type D3DDECLTYPE_UNUSED). Not bound here (Katamari does not call it); a port whose
+// game does binds it at its address:
+//   BANJO_RENUT_HOOK(sub_<its address>, D3DVertexDeclaration_GetDeclaration_hook);
+[[maybe_unused]] void D3DVertexDeclaration_GetDeclaration_hook(u32 declaration_va, u32 elements_va, u32 count_va) {
+  auto *count_word = GuestPtr<be_u32>(count_va);
+  const auto *declaration = FindRecord<VertexDeclarationRecord>(declaration_va, RecordKind::VertexDeclaration);
+  if (!count_word || !declaration)
+    return;
+  const u32 have = u32(declaration->elements.size());
+  const u32 room = u32(*count_word);
+  *count_word = have + 1;
+  auto *out = elements_va ? GuestPtr<GuestVertexElement>(elements_va) : nullptr;
+  if (!out)
+    return;
+  const u32 copied = std::min(have, room);
+  for (u32 i = 0; i < copied; ++i)
+    out[i] = declaration->elements[i];
+  if (room > have) {
+    GuestVertexElement end{};
+    end.Stream = u16(0xFF);
+    end.Offset = u16(0);
+    end.Type = kDeclTypeUnused;
+    out[have] = end;
+  }
+}
+
 } // namespace
 
 BANJO_RENUT_HOOK(sub_824D6120, D3DDevice_CreateVertexShader_hook);  // D3DDevice_CreateVertexShader  // katamari-nx: N&B sub_826377C0, signature 0.85 (next 0.55)

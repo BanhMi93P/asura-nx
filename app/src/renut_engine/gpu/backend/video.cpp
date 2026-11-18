@@ -4,6 +4,7 @@
  *          list management for the native renderer.
  */
 #include "renut_engine/gpu/backend/video.h"
+#include "renut_engine/gpu/host_batch.h"  // blur-nx (2026-11-18, the Renut host batch)
 
 #include <cstdio>
 #include <mutex>
@@ -633,6 +634,16 @@ constexpr uint32_t kKickListsAFrame = 3;
 // banjo-nx (2026-10-20, banjo_deko3d_eager_kicks): smaller lists, more of them, each submitted at its own kick.
 constexpr uint32_t kEagerKickDraws = 100;
 static_assert(kKickListsAFrame <= VideoState::kKickLists);
+// Port 164 (from fnxf_xiii, its note of 2026-11-05; banjo_deko3d_progressive_submit): the piece was 200 draws, at most
+// 3 a frame; fnxf_xiii's gameplay frame had ~195 (up to ~400), so a frame almost never split and the GPU started it
+// only at the present (submit -> GPU done 17-18 of its 19 ms; a late Swap or a render-thread spike then missed the
+// refresh). Now a quarter of the previous frame's draws (40 at least), up to kKickLists pieces: the GPU works on the
+// frame while the game and the render thread still make the rest.
+constexpr uint32_t kPiecesAFrame = 4;
+constexpr uint32_t kPieceMinDraws = 40;
+uint32_t PieceDraws(const VideoState &s) {
+  return std::max(kPieceMinDraws, s.last_frame_draws / kPiecesAFrame);
+}
 
 class RingCleaner {
 public:
@@ -702,9 +713,25 @@ private:
 
   void Run() {
     banjo::renut_gpu::OnBackgroundThreadStart("ring cleaner");
+    // blur-nx (2026-11-18, the Renut host batch's #11, blur_renut_ring_cleaner_priority / A/B 233): above the game
+    // threads on the background core, so that the ranges are clean before a submit needs them (the race: the render
+    // thread cleaned 835 of 1,946 ranges a 10 s itself, the cleaner behind the game threads there). Set again when the
+    // A/B half changes it.
+    int priority = ::renut::gpu::host_batch::BackgroundPriority();
+    const auto follow = [&priority] {
+      const int want = ::renut::gpu::host_batch::On(::renut::gpu::host_batch::kCleanerPriority)
+                           ? ::renut::gpu::host_batch::CleanerPriority()
+                           : ::renut::gpu::host_batch::BackgroundPriority();
+      if (want != priority) {
+        ::renut::gpu::host_batch::SetThisThreadPriority(want);
+        priority = want;
+      }
+    };
+    follow();
     std::unique_lock lock(mutex_);
     for (;;) {
       cv_.wait(lock, [this] { return !queue_.empty(); });
+      follow();
       const Job job = queue_.front();
       queue_.pop_front();
       working_ = job.ticket;
@@ -1004,6 +1031,8 @@ void SubmitAndAdvance(VideoState &s, plume::RenderCommandSemaphore *wait,
     // banjo-nx (2026-10-20, input latency): the guest Swap this frame ends, for the probe's "input -> GPU done".
     g_slot_swap[cur] = g_presenting_swap;
     g_gpu_done_noted[cur] = g_presenting_swap == 0;
+    s.last_frame_draws = s.frame_draws;  // port 164 (banjo_deko3d_progressive_submit)
+    s.frame_draws = 0;
 #if defined(PLUME_DEKO3D)
     g_trim.frame_end[cur] = plume::Deko3DCopyFence(s.fences[cur].get());
     FirstGpuWorkLocked(cur);
@@ -1199,6 +1228,7 @@ bool Video::EnsureCommandListLocked() {
 
 void Video::NoteDrawLocked() {
   ++State().list_draws;
+  ++State().frame_draws;  // port 164
 }
 
 void Video::NotePresentingSwap(uint64_t swap) {
@@ -1258,9 +1288,10 @@ void Video::KickLocked() {
   }
   // The open list ends here when it holds enough draws; the frame goes on in a kick list of the slot.
   const bool eager = banjo::renut_gpu::EagerKicksOn();
+  const bool progressive = !eager && banjo::renut_gpu::ProgressiveSubmitOn();  // port 164
   if (!banjo::renut_gpu::KickSubmitOn() ||
-      s.list_draws < (eager ? detail::kEagerKickDraws : detail::kKickSubmitDraws) ||
-      s.kick_lists_used[cur] >= (eager ? VideoState::kKickLists : detail::kKickListsAFrame))
+      s.list_draws < (eager ? detail::kEagerKickDraws : progressive ? detail::PieceDraws(s) : detail::kKickSubmitDraws) ||
+      s.kick_lists_used[cur] >= (eager || progressive ? VideoState::kKickLists : detail::kKickListsAFrame))
     return;
   std::unique_ptr<plume::RenderCommandList> &next = s.kick_lists[cur][s.kick_lists_used[cur]];
   if (!next) {

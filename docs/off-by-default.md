@@ -138,6 +138,28 @@ switch needs a rebuild (and a fresh PGO profile).
 | `crt_xmemcpy_as_memmove` (port 146) | The native XMemCpy (which a game maps its own block copy to) is a memmove. | Exact; off at the user's word (a game's forward block copy may be called with overlapping ranges, which memcpy leaves undefined; from nx-mod/rexglue-sdk-nx). | None |
 | `xconfig_host_time_zone` (port 147) | XConfig's TIME_ZONE_BIAS is the console's time zone (its offset now, DST included), so a game's local time is the player's. | Off at the user's word (the base answered 0: every game showed UTC). | None |
 
+## 6. fnxf_xiii's and rehatched-nx's fixes and accuracy options (ports 158-176), off by the same rule
+
+The user's rule for ports from other games (section 5): fixes and accuracy options off, speed-ups on. A game that needs
+one turns it on in its toml.
+
+| Key | Port | What it does when on |
+|---|---|---|
+| `banjo_xtimer_clamp_past` | 159 | an absolute timer due time in the past fires at once (a due time of 0 overflowed) |
+| `banjo_xam_profile_all_types` | 159 | XamUserWriteProfileSettings keeps the int, float, date and string settings too |
+| `banjo_switch_close_shutdown` | 159 | closing from HOME runs the app's shutdown (at most 3 s) first |
+| `banjo_mnk_pad_keystrokes` | 159 | PC: the keyboard as a pad for XInputGetKeystroke too |
+| `banjo_deko3d_vertex_texture_barrier` | 161 | a draw whose vertex shader samples textures waits for the GPU's earlier writes |
+| `banjo_deko3d_uam_pressure` | 163 | uam's register pressure passes (another DKSH cache file) |
+| `banjo_deko3d_sample_mask` | 166 | the game's MSAA sample mask for each draw |
+| `banjo_wait_absolute_timeouts` | 166 | a guest wait with an absolute timeout waits until that time (it timed out at once) |
+| `banjo_renut_scaler_crop` | 169 | the scaler's source rect picks the part of the front buffer shown |
+| `banjo_fence_waits_exports` | 170 | a D3D fence completes once pending memexport results are in guest memory (a GPU sync) |
+| `banjo_vblank_from_display` | 172 | the guest's vblanks follow the display's refreshes, not a 60 Hz timer |
+| `banjo_renut_all_surface_headers` | 174 | every bound surface's header kept as bound (with chain reuse and the scan-out hand-over off) |
+
+`banjo_deko3d_swap_interval` (port 165) is a setting, 1 as before.
+
 ## Keeping this page
 
 When a port reports that a key breaks its picture (with a comparison against the reference), its default goes to false

@@ -47,6 +47,27 @@ namespace plume {
     // Free memory, for the log lines that may be about running out of it: the heap's free bytes (newlib) and the
     // process's unused memory (the system's figures).
     extern "C" char *fake_heap_end; // libnx: the heap's end (sbrk grows towards it)
+    // Port 161 (from fnxf_xiii, its note of 2026-11-05): newlib's malloc bins (devkitA64 libc.a mallocr.c; the third word
+    // is the top chunk) and lock, for the heap's room without mallinfo in the logs made while the game runs. mallinfo
+    // takes the malloc lock and walks every free chunk (newlib's __malloc_update_mallinfo; fnxf_xiii: 13-20 ms with the
+    // game's heap): the "memory block" line of the first 24 blocks of 8 MB or more (the upload ring's chunks, the stream
+    // buffers) cost the render thread about 20 ms each, and every thread's malloc waited meanwhile. The room: newlib's
+    // top chunk (__malloc_av_[2], its size word masked, what mallinfo calls keepcost) and what sbrk can still give; free
+    // chunks inside the heap are not counted.
+    extern "C" void *__malloc_av_[];  // (__malloc_lock / __malloc_unlock: malloc.h, as regionMoveHeapEnd uses them)
+    static void memoryFiguresQuick(uint64_t &heapRoom, uint64_t &processFree) {
+        __malloc_lock(_REENT);
+        const size_t *top = static_cast<const size_t *>(__malloc_av_[2]);
+        const size_t keepcost = top ? top[1] & ~size_t(3) : 0;
+        __malloc_unlock(_REENT);
+        char *brk = static_cast<char *>(sbrk(0));
+        heapRoom = uint64_t(keepcost) + (fake_heap_end > brk ? uint64_t(fake_heap_end - brk) : 0);
+        uint64_t total = 0, used = 0;
+        svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+        svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+        processFree = total > used ? total - used : 0;
+    }
+
     static void memoryFigures(uint64_t &heapFree, uint64_t &processFree) {
         // Free chunks inside what malloc has taken, and what sbrk can still give.
         struct mallinfo mi = mallinfo();
@@ -188,6 +209,8 @@ namespace plume {
 
     static std::atomic<bool> g_imageBestFit{true};  // sasrt-nx (2026-11-09 night; port 58): Deko3DSetImageBestFit
     void Deko3DSetImageBestFit(bool on) { g_imageBestFit.store(on, std::memory_order_relaxed); }
+    static std::atomic<bool> g_imageSpare{true};  // blur-nx (2026-11-18): Deko3DSetImageSpareChunk
+    void Deko3DSetImageSpareChunk(bool on) { g_imageSpare.store(on, std::memory_order_relaxed); }
 
     void Deko3DSetRegionBestFit(bool on) {  // sasrt-nx (2026-11-09 night; port 58): plume_deko3d.h
         std::lock_guard<std::mutex> lock(g_regionMutex);
@@ -1226,6 +1249,12 @@ namespace plume {
     static uint64_t g_boostSince = 0;
 
     Deko3DDevice::~Deko3DDevice() {
+        {  // blur-nx (2026-11-18): the spare-chunk thread stopped first (it makes blocks and adds chunks)
+            std::unique_lock<std::mutex> lock(spareMutex);
+            spareStop = true;
+            spareWake.notify_all();
+            spareDone.wait_for(lock, std::chrono::seconds(2), [this] { return !spareRunning; });
+        }
         {
             std::lock_guard<std::mutex> lock(g_boostMutex);  // banjo-nx (2026-10-23): never left in boost mode
             if (g_boostActive)
@@ -1263,7 +1292,23 @@ namespace plume {
             dkDeviceDestroy(dk);
     }
 
+    // blur-nx (2026-11-18, for 1 % lows, every port): a block that took 4 ms or more to make is logged with its time (64
+    // lines at most): the storage zeroed and flushed, the GPU mapping, the heap's figures, on the thread that asked.
     DkMemBlock Deko3DDevice::makeBlock(uint32_t size, uint32_t flags, const char *what) {
+        const uint64_t t0 = armGetSystemTick();
+        DkMemBlock block = makeBlockUntimed(size, flags, what);
+        const double ms = double(armTicksToNs(armGetSystemTick() - t0)) / 1e6;
+        static std::atomic<uint32_t> slowLogged{0};
+        if (ms >= 4.0 && slowLogged.fetch_add(1, std::memory_order_relaxed) < 64) {
+            s32 priority = -1;
+            svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+            logf("memory block: %s, %u KiB took %.1f ms (a thread of priority 0x%X, core %d)%s", what, size >> 10, ms,
+                 uint32_t(priority), svcGetCurrentProcessorNumber(), block ? "" : ": NONE MADE");
+        }
+        return block;
+    }
+
+    DkMemBlock Deko3DDevice::makeBlockUntimed(uint32_t size, uint32_t flags, const char *what) {
         DkMemBlockMaker m;
         dkMemBlockMakerDefaults(&m, dk, alignUp(size, DK_MEMBLOCK_ALIGNMENT));
         m.flags = flags;
@@ -1276,7 +1321,7 @@ namespace plume {
         // on the thread making the block: the render thread for the upload ring's chunks).
         if ((size >= (8u << 20) || (before >> 26) != ((before + m.size) >> 26)) && logged.fetch_add(1) < 24) {
             uint64_t heapFree = 0, processFree = 0;
-            memoryFigures(heapFree, processFree);
+            memoryFiguresQuick(heapFree, processFree);  // port 161: no heap walk (the heap's room)
             logf("memory block: %s, %u KiB (deko3d blocks %" PRIu64 " MB in all; heap %" PRIu64 " MB free, process %" PRIu64 " MB unused)",
                  what, size >> 10, (before + m.size) >> 20, heapFree >> 20, processFree >> 20);
         }
@@ -1522,6 +1567,96 @@ namespace plume {
         }
     }
 
+    // blur-nx (2026-11-18, for 1 % lows, every port: Deko3DSetImageSpareChunk). The image heap's spare chunk: asked for
+    // (heapMutex held) after an image took room in the shared chunks, when none of them is empty; made on a thread of
+    // its own, outside every lock, and added under heapMutex. One at a time (spareMaking), so at most one is made ahead.
+    static void *spareThreadEntry(void *arg) {
+        static_cast<Deko3DDevice *>(arg)->spareWorker();
+        return nullptr;
+    }
+
+    void Deko3DDevice::wantSpareLocked() {
+        if (!g_imageSpare.load(std::memory_order_relaxed))
+            return;
+        for (const Chunk &c : chunks)
+            if (c.block && !c.dedicated && c.freeList.size() == 1 && c.freeList[0].first == 0 && c.freeList[0].second == c.size)
+                return;  // an empty shared chunk: the spare is there
+        std::lock_guard<std::mutex> lock(spareMutex);
+        if (spareStop || spareWanted || spareMaking)
+            return;
+        spareWanted = true;
+        if (!spareStarted) {
+            spareStarted = true;
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, 256u << 10);
+            pthread_t thread;
+            spareRunning = pthread_create(&thread, &attr, spareThreadEntry, this) == 0;
+            pthread_attr_destroy(&attr);
+            if (spareRunning)
+                pthread_detach(thread);
+            else
+                logf("image heap: the spare-chunk thread did not start");
+        }
+        spareWake.notify_one();
+    }
+
+    void Deko3DDevice::spareWorker() {
+        // The uam thread's place: off the render thread's core, below the game's threads (the priority the process
+        // allows at or above the asked one, as compileWorker takes it).
+        if (g_deko3dOptions.compileCore >= 0)
+            svcSetThreadCoreMask(CUR_THREAD_HANDLE, g_deko3dOptions.compileCore, 1u << g_deko3dOptions.compileCore);
+        s32 asked = g_deko3dOptions.compilePriority, priority = -1;
+        if (asked > 0) {
+            u64 allowed = 0;
+            if (R_SUCCEEDED(svcGetInfo(&allowed, InfoType_PriorityMask, CUR_PROCESS_HANDLE, 0)) && allowed != 0) {
+                s32 p = std::min<s32>(asked, 63);
+                while (p > 0 && !(allowed & (1ull << p)))
+                    p--;
+                asked = p > 0 ? p : asked;
+            }
+            svcSetThreadPriority(CUR_THREAD_HANDLE, u32(asked));
+        }
+        svcGetThreadPriority(&priority, CUR_THREAD_HANDLE);
+        logf("image heap: the spare-chunk thread started (core %d, priority 0x%X; Deko3DSetImageSpareChunk)",
+             g_deko3dOptions.compileCore, uint32_t(priority));
+        std::unique_lock<std::mutex> lock(spareMutex);
+        for (;;) {
+            spareWake.wait(lock, [this] { return spareStop || spareWanted; });
+            if (spareStop)
+                break;
+            spareWanted = false;
+            spareMaking = true;
+            lock.unlock();
+            DkMemBlock block = nullptr;
+            const uint64_t t0 = armGetSystemTick();
+            if (!heapRoomShort() && g_imageSpare.load(std::memory_order_relaxed)) {
+                t_inImageAlloc = true;  // no empty chunks given back to make a spare one
+                block = makeBlock(ImageChunkSize, DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image, "image heap chunk (ahead)");
+                t_inImageAlloc = false;
+            }
+            const double ms = double(armTicksToNs(armGetSystemTick() - t0)) / 1e6;
+            if (block) {
+                size_t n = 0;
+                {
+                    std::lock_guard<std::mutex> heap(heapMutex);
+                    Chunk c;
+                    c.block = block;
+                    c.size = ImageChunkSize;
+                    c.freeList.push_back({0, ImageChunkSize});
+                    chunks.push_back(std::move(c));
+                    n = chunks.size();
+                }
+                logf("image heap: chunk %zu of %u MiB made ahead in %.1f ms (Deko3DSetImageSpareChunk)", n,
+                     ImageChunkSize >> 20, ms);
+            }
+            lock.lock();
+            spareMaking = false;
+        }
+        spareRunning = false;
+        spareDone.notify_all();
+    }
+
     bool Deko3DDevice::imageAlloc(uint32_t size, uint32_t alignment, Deko3DImageAlloc &out, bool dedicated) {
         size = alignUp(size, 256);
         alignment = std::max<uint32_t>(alignment, 256);
@@ -1599,6 +1734,7 @@ namespace plume {
                     out.offset = at;
                     out.size = size;
                     out.chunk = int32_t(bc);
+                    wantSpareLocked();  // blur-nx (2026-11-18): the next chunk made ahead if none is empty now
                     return true;
                 }
             }
@@ -1620,12 +1756,14 @@ namespace plume {
                     out.offset = at;
                     out.size = size;
                     out.chunk = int32_t(ci);
+                    wantSpareLocked();  // blur-nx (2026-11-18): the next chunk made ahead if none is empty now
                     return true;
                 }
             }
             if (pass == 0) {
                 uint32_t chunkSize = std::max(ImageChunkSize, alignUp(size + alignment, DK_MEMBLOCK_ALIGNMENT));
                 Chunk c;
+                const uint64_t made_at = armGetSystemTick();  // blur-nx (2026-11-18): how long this thread waited
                 t_inImageAlloc = true;  // banjo-nx (2026-10-28): makeBlock leaves the image heap to this thread
                 c.block = makeBlock(chunkSize, DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image, "image heap chunk");
                 // banjo-nx (2026-10-28, the console's OOM): the empty chunks back, then the image's own size.
@@ -1643,7 +1781,8 @@ namespace plume {
                 c.size = chunkSize;
                 c.freeList.push_back({0, chunkSize});
                 chunks.push_back(std::move(c));
-                logf("image heap: chunk %zu of %u MiB", chunks.size(), chunkSize >> 20);
+                logf("image heap: chunk %zu of %u MiB, made at once in %.1f ms (the heap's lock held)", chunks.size(),
+                     chunkSize >> 20, double(armTicksToNs(armGetSystemTick() - made_at)) / 1e6);
             }
         }
         return false;
@@ -1956,7 +2095,7 @@ namespace plume {
                 if (logged < 4) {
                     logged++;
                     uint64_t hf = 0, pf = 0;
-                    memoryFigures(hf, pf);
+                    memoryFiguresQuick(hf, pf);  // port 161: no heap walk
                     logf("uam: compile %u (stage %u, %zu bytes of GLSL; heap %" PRIu64 " MB free, process %" PRIu64 " MB unused)",
                          logged, uint32_t(job->stage), job->source->size(), hf >> 20, pf >> 20);
                 }

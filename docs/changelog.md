@@ -246,3 +246,28 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
   swaps without Present.
 - Port 157 (from blur-nx) sends a GPU submission that nvservices refuses again in halves instead of
   aborting (Blur's map-load crashes, a Timeout on a full GPFIFO ring).
+- Port 158 (from fnxf_xiii) builds the function registration file at -O0 in the Switch build (1,171 s of a full build down to 37 s).
+- Port 159 (from fnxf_xiii) adds kernel and SDK fixes from fnxf_xiii, off by default (timer due times, profile settings, HOME close,
+  PC keystrokes), and cleans SaltySD's page.
+- Port 160 (from fnxf_xiii) makes the store cards evaluate their address once (less code, fewer loads).
+- Port 161 (from fnxf_xiii) holds back barriers between buffer copies, runs the frame bookkeeping after the present, writes deko3d's
+  log on its own thread and fixes the surface memo (the EDRAM base).
+- Port 162 (from fnxf_xiii) speeds up uam's compiles and frees what each compile leaked.
+- Port 163 (from fnxf_xiii) adds uam's register pressure passes, off by default (banjo_deko3d_uam_pressure).
+- Port 164 (from fnxf_xiii) sends a frame to the GPU in pieces sized by the frame before, and takes scratch memory out of two host shaders.
+- Port 165 (from fnxf_xiii) adds banjo_deko3d_swap_interval (1-4 refreshes an image).
+- Port 166 (from fnxf_xiii) adds the MSAA sample mask and absolute wait timeouts, off by default.
+- Port 167 (from fnxf_xiii) adds guest callers to the stall dumps, a GPU fault report and better gap tools (find_gaps.py,
+  runtime_gap_resolver.py, code_pointer_scan.py).
+- Port 168 (from fnxf_xiii) keeps a replaced texture a while for its content's return (no upload again).
+- Port 169 (from fnxf_xiii) adds the scaler's source crop at present, off by default.
+- Port 170 (from fnxf_xiii) lets a D3D fence wait for pending memexport results, off by default.
+- Port 171 (from fnxf_xiii) untiles large texture levels on two helper threads with the render thread.
+- Port 172 (from fnxf_xiii) lets the guest's vblanks follow the display's refreshes, off by default.
+- Port 173 (from rehatched-nx) adds hook bodies for later XDKs (GetDeclaration, Bind and gamma with Flags), not bound.
+- Port 174 (from rehatched-nx) can keep every bound surface's header as bound (banjo_renut_all_surface_headers, off).
+- Port 175 (from rehatched-nx) translates a shader export to a register with no name as a plain register write.
+- Port 176 (from rehatched-nx) lets input_script split at ';' and spaces, and adds the XDK 2.0.9407 notes.
+- Port 177 (from blur-nx) adds Blur's Renut host batch (render thread ~16 % faster per draw on its console),
+  1 % lows in the 10 s report, the image heap's spare chunk, the UI-upscale band fix and the game menu.
+- Port 178 (from blur-nx) wires the game menu into the base's app (A+B+X+Y+L+R opens it, + closes it).

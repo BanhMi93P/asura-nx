@@ -144,6 +144,8 @@ struct VideoState {
   plume::RenderCommandList *pending_list = nullptr;
   uint64_t pending_ticket = 0;
   uint32_t list_draws = 0;
+  // Port 164 (banjo_deko3d_progressive_submit): the frame's draws so far and the previous frame's (the piece size).
+  uint32_t frame_draws = 0, last_frame_draws = 0;
   // Bumped each time a command list begins; bound state cached against an
   // older value has to be set again.
   uint64_t list_generation = 0;

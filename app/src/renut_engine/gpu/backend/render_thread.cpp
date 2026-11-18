@@ -3,6 +3,7 @@
  */
 #include "renut_engine/gpu/backend/render_thread.h"
 #include "renut_engine/gpu/stage_census.h"  // blur-nx (2026-11-17, the Renut audit's census)
+#include "renut_engine/gpu/host_batch.h"  // blur-nx (2026-11-18, the Renut host batch)
 
 #include <algorithm>
 #include <atomic>
@@ -91,6 +92,10 @@ REXCVAR_DEFINE_BOOL(dishonored_renut_lockfree_queue, true, "Banjo/Enhancements",
 extern "C" bool RexSwitchWaitIfEqual(volatile uint32_t* word, uint32_t value, int64_t ns);
 extern "C" void RexSwitchWakeAddress(volatile uint32_t* word, int32_t count);
 #endif
+
+namespace renut::gpu {
+void SettleExportsForFence();  // port 170: render/draw.cpp (banjo_fence_waits_exports)
+}
 
 namespace renut::gpu::render_thread {
 
@@ -545,10 +550,17 @@ bool PushRing(Item &&item, bool draw) {
   slot->item = std::move(item);
   // Published, then g_waiting read: a sequentially consistent store and load (stlr, ldar: no dmb), RunRing's order.
   slot->seq.store(pos + 1, std::memory_order_seq_cst);
+  // blur-nx (2026-11-18, the Renut host batch's #28, blur_renut_wake_batch_all / A/B 238): with a wake batch (the render
+  // thread then looks every 2 ms by itself), any item may wait for the batch as draws do: command buffer runs and
+  // resolves woke it at once, each a kernel call on the pushing thread (the Game Master's), with the render thread idle
+  // half the time.
+  const bool as_draw = draw || (g_wake_batch > 1 && ::renut::gpu::host_batch::On(::renut::gpu::host_batch::kWakeBatchAll));
   const bool wake = (g_waiting.load(std::memory_order_seq_cst) &&
-                     (!draw || pos + 1 - g_dequeue.load(std::memory_order_relaxed) >= g_wake_batch)) ||
+                     (!as_draw || pos + 1 - g_dequeue.load(std::memory_order_relaxed) >= g_wake_batch)) ||
                     !g_notify_idle;
   if (wake) {
+    const bool hb_census = ::renut::gpu::host_batch::CensusOn();  // blur-nx (2026-11-18, the census's #28)
+    const uint64_t t0 = hb_census ? ::renut::gpu::host_batch::Ticks() : 0;
     if (AddressWakeOn()) {
       WakeRenderAddress();  // blur-nx (2026-11-17, audit #11)
     } else {
@@ -556,6 +568,10 @@ bool PushRing(Item &&item, bool draw) {
         std::lock_guard lock(g_mutex);
       }
       g_work_cv.notify_one();
+    }
+    if (hb_census) {
+      ::renut::gpu::host_batch::Add(draw ? ::renut::gpu::host_batch::kWakesDraw : ::renut::gpu::host_batch::kWakesOther);
+      ::renut::gpu::host_batch::Add(::renut::gpu::host_batch::kWakeTicks, ::renut::gpu::host_batch::Ticks() - t0);
     }
   }
   return true;
@@ -614,6 +630,7 @@ void QueuePrefetched(const void *prefetch0, const void *prefetch1, std::function
 
 void QueueFenceCompletion(u32 completion_va, u32 fence, uint64_t after_callback) {
   QueueUnlocked([completion_va, fence, after_callback] {
+    ::renut::gpu::SettleExportsForFence();  // port 170 (banjo_fence_waits_exports; nothing when off)
     bool wake;
     {
       std::lock_guard lock(g_mutex);

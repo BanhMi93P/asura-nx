@@ -1332,10 +1332,16 @@ Result __wrap_nvFenceWait(NvFence* f, s32 timeout_us) {
   return rc;
 }
 
+// Port 167 (from fnxf_xiii): plume_deko3d_commands.cpp, the channel's report of a failed kickoff (weak: a build
+// without plume's deko3d back end has none).
+extern "C" __attribute__((weak)) void RexSwitchGpuKickoffFailed(NvGpuChannel* channel, uint32_t rc);
+
 Result __wrap_nvGpuChannelKickoff(NvGpuChannel* c) {
   const u64 from = armGetSystemTick();
   const Result rc = __real_nvGpuChannelKickoff(c);
   Note(kKickoff, from);
+  if (R_FAILED(rc) && RexSwitchGpuKickoffFailed)
+    RexSwitchGpuKickoffFailed(c, rc);
   return rc;
 }
 
