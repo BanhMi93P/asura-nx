@@ -23,6 +23,7 @@ console run needs the console owner's word first.
   ls [PATH]                  ftp listing (default: the port's folder)
   get REMOTE [LOCAL]         ftp download (a folder: every file in it, one level)
   put LOCAL REMOTE           ftp upload (overwrites a file of that name in the folder)
+  mv REMOTE NEW              ftp rename inside the port's folder; refused when NEW exists (it would be replaced)
   raw "CMD ..."              a sys-botbase command as it is, the reply printed
   album-ls [PATH]            the Album, read only: /Nintendo/Album... or /emuMMC/<folder>/Nintendo/Album...
   album-get REMOTE [LOCAL]   one Album file downloaded (read only; nothing in the Album is written or deleted)
@@ -395,9 +396,11 @@ def main():
         remote = sd_path('logs/rex/stall_dump')
         ftp_retry(host, lambda f: f.storbinary('STOR ' + remote, io.BytesIO(b'')))
         print('requested a stall dump:', remote, time.strftime('%H:%M:%S'))
-    elif cmd in ('ls', 'get', 'put'):
-        # Refused before any connection is made: the card path is rest[1] for put, rest[0] for the others.
+    elif cmd in ('ls', 'get', 'put', 'mv'):
+        # Refused before any connection is made: the card path is rest[1] for put, rest[0] for the others (both for mv).
         sd_path(rest[1] if cmd == 'put' else (rest[0] if rest else ''))
+        if cmd == 'mv':
+            sd_path(rest[1])
         if cmd == 'ls':
             lines = []
             ftp_retry(host, lambda f: (f.cwd(sd_path(rest[0] if rest else '')), f.retrlines('LIST', lines.append)))
@@ -426,6 +429,18 @@ def main():
                 print('%d files, %d failed' % (len(sizes), len(failed)))
         elif cmd == 'put':
             print('put', rest[0], '->', sd_path(rest[1]), ftp_put_file(host, rest[0], sd_path(rest[1])), 'bytes')
+        elif cmd == 'mv':
+            # blur-nx (2026-11-18): a rename inside the port's folder (both paths checked), in place of a delete: an A/B of
+            # packed and raw game files sets the raw ones aside and puts them back. Here it also refuses a destination
+            # that exists: a rename over it would replace it, and this tool deletes nothing on the card.
+            src, dst = sd_path(rest[0]), sd_path(rest[1])
+            parent, name = posixpath.split(dst)
+            listed = []
+            ftp_retry(host, lambda f: (f.cwd(parent), f.retrlines('NLST', listed.append)))
+            if any(posixpath.basename(n.rstrip('/')) == name for n in listed):
+                sys.exit('refused: %s exists (a rename over it would replace it)' % dst)
+            ftp_retry(host, lambda f: f.rename(src, dst))
+            print('renamed', src, '->', dst)
     else:
         sys.exit('unknown command %s (no delete command: nothing on the card is deleted)' % cmd)
 

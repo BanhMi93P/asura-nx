@@ -281,3 +281,7 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
   instrumented builds); it stays off because it took back no texture in Blur or Katamari.
 - Port 182 (from blur-nx) sends the game menu's combo once a press across pads (Ryujinx with three pads opened
   and closed the menu at once).
+- Port 183 (from blur-nx): with logging off, stderr stays in memory (a crash report carries it) and nothing is
+  written in logs/; with logging on, rex_stderr.log appears at its first write.
+- Port 184 (from blur-nx): the forms self-check expects what the near-exact switches choose (#1, #17).
+- Port 185 (from blur-nx): tools/run_pc.ps1 -Game and tools/switch_remote.py mv (refuses to replace a file).
