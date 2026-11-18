@@ -277,3 +277,7 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
   Menu font.
 - Port 181 turns port 168's texture park off by default: on Blur's console it drew whole races with ghosting,
   colour fringes and grain.
+- Port 181 corrected (Blur, the same day): the texture park did not break Blur's picture (that was slow
+  instrumented builds); it stays off because it took back no texture in Blur or Katamari.
+- Port 182 (from blur-nx) sends the game menu's combo once a press across pads (Ryujinx with three pads opened
+  and closed the menu at once).

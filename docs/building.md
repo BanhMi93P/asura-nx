@@ -114,7 +114,9 @@ its form, so with the defaults these steps make and use `pgo-inplace/`; with `IN
    in place; its configure stops while `pgo-inplace/` has no profile, and `IN_PLACE=OFF` builds the hooked form with
    `pgo/`). It carries no game shader and reads `deko3d_glsl.bin` beside itself. `pgo/` in this repository is the
    profile of the releases before port 81 (the hooked form). A function changed since the instrumented build keeps no
-   profile.
+   profile. So train again after a change to the draw path's own functions: port 179 added calls inside
+   FastDrawLocked and DrawStateLocked, and Blur's NRO with the profile trained before it drew at 14.75 us a draw
+   (render thread) until it was trained again (11.56 us; blur-nx, 2026-11-18).
 
 Two more PGO options were tried and are not used (blur-nx, 2026-11-12, its CPU batch 3; port 111):
 
