@@ -30,6 +30,17 @@ import struct
 import subprocess
 import sys
 
+
+def gen_file(gen, suffix):
+    """renut-ultimate (2026-11-19, port 186; found by sasrt-nx's sync): the generator names its files after the project
+    (<project>_pch.h, <project>_init.cpp, <project>_recomp.N.cpp): renut_ in the base, a port's own name otherwise."""
+    for name in sorted(os.listdir(gen)):
+        m = re.fullmatch(r'(\w+)_recomp\.\d+\.cpp', name)
+        if m:
+            return os.path.join(gen, m.group(1) + '_' + suffix)
+    return os.path.join(gen, 'renut_' + suffix)
+
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, 'app')
 TOOLS = os.path.join(ROOT, 'tools')
@@ -56,8 +67,7 @@ def find_rexglue():
 def code_range():
     # The generator writes the code range into the generated precompiled header (REX_CODE_BASE / REX_CODE_SIZE);
     # older SDKs wrote it into the init file (PPCImageConfig).
-    for name in ('renut_pch.h', 'renut_init.cpp', 'renut_config.h'):
-        path = os.path.join(GEN, name)
+    for path in (gen_file(GEN, 'pch.h'), gen_file(GEN, 'init.cpp'), gen_file(GEN, 'config.h')):
         if not os.path.exists(path):
             continue
         text = open(path, errors='replace').read()

@@ -677,11 +677,14 @@ REXCVAR_DEFINE_INT32(banjo_renut_ab_target, 0, "Banjo",
                      "banjo_gpu_depth_words_view; 14 banjo_renut_record_worker; 15 banjo_deko3d_light_branch, 16 "
                      "banjo_deko3d_gpr32 and 17 banjo_deko3d_skin_once (2026-10-20: the key on; the off half's "
                      "pipelines are built without its constant); 18 banjo_deko3d_eager_kicks; 19 "
-                     "banjo_renut_smaa (2026-10-21; was banjo_late_input_gpu until 36s). The part is "
+                     "banjo_renut_smaa (2026-10-21; was banjo_late_input_gpu until 36s); 256-511 a port's own targets (the base's are 1-255). The part is "
                      "switched off and on every banjo_renut_ab_s seconds; the \"[renut A/B]\" line every 10 s gives "
                      "both halves' frame rate, render thread and GPU time")
-    .range(0, 255);  // banjo-nx (2026-10-27): was 19, which refused every target from 20 on; 2026-10-28: 127 (64, 65);
+    .range(0, 511);  // banjo-nx (2026-10-27): was 19, which refused every target from 20 on; 2026-10-28: 127 (64, 65);
                      // sasrt-nx (2026-11-08): 255 (the third GPU round's targets, 120 and up)
+                     // renut-ultimate (2026-11-19, port 188; sasrt-nx's sync: its own 240 met the base's 240, Blur's
+                     // #36): 511. The base's targets are 1-255; 256-511 are a port's own, and the base never takes a
+                     // number there (an item it takes from a port gets a free number below 256)
 REXCVAR_DEFINE_INT32(banjo_renut_ab_s, 4, "Banjo", "Renut's renderer: the half-period of banjo_renut_ab_target, in seconds")
     .range(1, 60);
 REXCVAR_DEFINE_STRING(banjo_renut_ab_targets, "", "Banjo",
@@ -1013,7 +1016,7 @@ struct Stats {
   // banjo-nx (2026-10-20, banjo_renut_ab_targets): the list's halves by target, and the place in it.
   // banjo-nx (2026-10-27): 64 (targets 32-40 exist; AbTargets dropped them at 32). 2026-10-28: 128 (target 64, A/B of the
   // night_gpu packages' renut_ab.toml, was dropped silently at 64: the same trap again; 65 the host packets).
-  Half by_target[256][2];  // sasrt-nx (2026-11-08): 256 (targets up to 255)
+  Half by_target[512][2];  // sasrt-nx (2026-11-08): 256 (targets up to 255); port 188: 512 (256-511 a port's own)
   uint32_t cycle = 0;
   std::chrono::steady_clock::time_point half_start{};
   uint64_t cpu_mark = 0;  // banjo-nx (2026-10-28): TotalThreadTicks at the half's start
@@ -1181,10 +1184,11 @@ const std::vector<int> &AbTargets() {
         n = n * 10 + (c - '0');
         digit = true;
       } else {
-        if (digit && n > 0 && n < 256)  // banjo-nx (2026-10-27): was 32, which dropped targets 32-40 silently; sasrt-nx: 256
+        if (digit && n > 0 && n < 512)  // banjo-nx (2026-10-27): was 32, which dropped targets 32-40 silently; sasrt-nx: 256;
+                                        // port 188: 512 (256-511 a port's own)
           v.push_back(n);
-        else if (digit && n >= 256)
-          REXLOG_WARN("[renut] banjo_renut_ab_targets: target {} is past the last one (255): left out", n);
+        else if (digit && n >= 512)
+          REXLOG_WARN("[renut] banjo_renut_ab_targets: target {} is past the last one (511): left out", n);
         n = 0;
         digit = false;
       }

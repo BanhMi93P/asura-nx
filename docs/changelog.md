@@ -285,3 +285,9 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
   written in logs/; with logging on, rex_stderr.log appears at its first write.
 - Port 184 (from blur-nx): the forms self-check expects what the near-exact switches choose (#1, #17).
 - Port 185 (from blur-nx): tools/run_pc.ps1 -Game and tools/switch_remote.py mv (refuses to replace a file).
+- Port 186 (sasrt-nx's sync): the post-codegen passes find the generated files by the port's project name
+  (<project>_recomp.N.cpp, _pch.h, _init.cpp), not renut_ only; near_exact.py stopped and fp_env_files.py missed
+  the FPSCR writers in a port with another name.
+- Port 187 (sasrt-nx's sync): port 144's builders in rex::codegen::extra_insn, so a port's own build_ldbrx (and
+  the rest) still links.
+- Port 188 (sasrt-nx's sync): A/B targets 256-511 are a port's own; the base's stay 1-255.

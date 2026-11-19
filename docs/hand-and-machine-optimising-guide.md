@@ -63,6 +63,8 @@ thread that limits the frame.
    track, the same clocks (check the profile's `clocks:` line), the same toml. Run-to-run noise on process CPU is about
    +-2 %, on small threads +-5-8 %: one race pair proves only bigger differences. The in-run A/B (`banjo_renut_ab_target =
    70` sends every copy's hook to the original in alternate 4 s halves) removes scene noise for hooked copies.
+   A port's own A/B targets take numbers 256-511 (port 188): the base's are 1-255, and it never takes a
+   number from 256 up, so a sync cannot meet a port's own.
 
 ---
 

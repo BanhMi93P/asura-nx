@@ -21,7 +21,7 @@ the Switch the main goal; work uninterrupted until 20:00 AEST.
 | Port folder | `D:\beautifulkatamari\katamari-nx` (git, local commits only) | next to the game, like `D:\kingdomkeflings\keflings-nx` |
 | Ryujinx data folder | `D:\New folder\ryu-data\katamari` | the port's own, as the request asks |
 | `app/assets` | a junction to `D:\beautifulkatamari\game` | the manifest reads `assets/default.xex`; no second 2.7 GB copy on a D: drive with 7-20 GB free |
-| Internal project name | `renut` (as banjo-nx) | banjo-nx's CMake, post-codegen passes and renderer glue name `renut_*` files and targets; the NRO, its title and the SD folder are katamari-nx |
+| Internal project name | `renut` (as banjo-nx) | banjo-nx's CMake, post-codegen passes and renderer glue name `renut_*` files and targets (the passes take a port's own project name too since port 186); the NRO, its title and the SD folder are katamari-nx |
 | First boot | the SDK's emulated GPU (`gpu_plugin = "xenos"`), Renut compiled out | separates CPU / kernel problems from renderer problems (peggle2-nx's order of work); Renut's hooks are at N&B's addresses and must be moved first |
 | Renut's hooks | compiled but not registered until moved (`KATAMARI_RENUT_HOOKS`, `banjo_renut_select.h`) | an N&B address is an unrelated function in this game |
 | Banjo-only sources | not built: cheats / mid-asm hooks (`hooks.cpp`), title update, DLC, `banjo_me_hooks.cpp`, XAudio natives, hand natives, hot copies, shader harvest | each is written for N&B's addresses; `src/katamari_keys.cpp` defines the keys the kept files read (off) |
