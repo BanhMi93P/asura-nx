@@ -364,6 +364,11 @@ std::vector<Setting> MakeSettings(const std::string& file) {
   std::vector<Setting> s;
   auto add = [&](int label, std::string key, bool restart, std::vector<Choice> choices, int def, std::string help,
                  bool always_in_file = true) {
+    // renut-ultimate (2026-11-19, port 189; sasrt-nx's): no row for a key this build does not define (Katamari's
+    // frame_cap in a port that took app/src/katamari_keys.cpp out; four_core_mode and the Joy-Con keys off the Switch),
+    // so a port needs no edit here. The file keeps any such line as it is.
+    if (!rex::cvar::GetFlagInfo(key))
+      return;
     Setting x;
     x.label = Tr(label);
     x.key = std::move(key);

@@ -291,3 +291,5 @@ Ports 1-43 are the first round: the universal fixes of the other ports' renderer
 - Port 187 (sasrt-nx's sync): port 144's builders in rex::codegen::extra_insn, so a port's own build_ldbrx (and
   the rest) still links.
 - Port 188 (sasrt-nx's sync): A/B targets 256-511 are a port's own; the base's stay 1-255.
+- Port 189 (from sasrt-nx): the game menu leaves out a settings row whose key the build does not define (a port
+  without Katamari's frame_cap needs no edit there).
