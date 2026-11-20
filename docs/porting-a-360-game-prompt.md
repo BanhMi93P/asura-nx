@@ -87,6 +87,11 @@ The work, in order
    (tools/codegen.ps1, then python tools/post_codegen.py in full), and get it booting to gameplay on the PC with Renut's
    renderer (the Vulkan back end). Fix what stops it (imports, kernel calls, file system, input). Record every
    game-specific fix in docs/<SHORT>-notes.md.
+   After every code generation, before the first long play: `python tools/built_ptr_scan.py` (port 191). It lists the
+   code addresses the game builds in code (lis + addi/ori) that no translated function starts at; each real one is a
+   callback that stops the game with "unregistered function" the first time it runs (Sonic 4's Mad Gear zone, S4ep1-nx
+   0.5.1). Register each with its evidence in app/overrides.toml. An Xbox Live Arcade game that asks
+   XamContentGetLicenseMask runs as its trial with the SDK's default: set license_mask = 1 in its toml (S4ep1-nx).
    Then CG-13's census, as soon as the PC build reaches gameplay: the Switch build runs all of the game's float code in
    the host's flush mode (BLUR_FPCR_ONE_MODE, on by default there: no `msr fpcr` between its VMX and scalar code, a
    large CPU saving), which turns a scalar denormal into zero where the Xenon keeps it. Run
@@ -104,8 +109,14 @@ The work, in order
    (app/src/renut_engine/gpu, app/thirdparty/plume, the uam shader pipeline, tools/switch_shaders.ps1 for the shader
    package, tools/deko3d_variant_cache.py for the DKSH cache). Get it drawing this game, with NVK not linked (deko3d
    only). Nothing Katamari decided carries over untested: the game-specific decisions of porting-guide-renderer.md
-   section 2 ("What your game decides") each get a census first, including where this game keeps its shaders. The
-   base's defaults to settle for this game:
+   section 2 ("What your game decides") each get a census first, including where this game keeps its shaders: scan
+   every data file for shader containers (flags 0x102A11xx) and dump them all into the build. Renut skips every draw
+   whose shader the build lacks, so areas nobody played show invisible objects (S4ep1-nx 0.5.0 shipped 97 of the 282 in
+   Sonic 4's data.cpk). Before the first Renut build, list the argument registers each hooked D3D function reads in the
+   generated code and compare them with the hook's signature: an LTCG-linked Direct3D drops constant arguments (Sonic
+   4's CreateDevice and Present take none; docs/xdk-notes.md). Check where the game reads its controller: banjo_late_input
+   (on) delays the first read after each Swap and assumes it happens on the thread that swaps; Sonic 4 reads on a
+   frame thread of its own, and ran at a quarter speed until it was off. The base's defaults to settle for this game:
    - SMAA is on (banjo_renut_smaa) but runs only right after the draw whose pixel shader is in
      banjo_renut_smaa_after_ps; until this game's final composite (the last full-screen draw before the HUD) is listed
      there, the 10 s line says "SMAA ... 0 frames". Find it with banjo_renut_diag_draw_log_s in gameplay, not a menu.

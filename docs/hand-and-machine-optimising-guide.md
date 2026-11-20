@@ -65,6 +65,10 @@ thread that limits the frame.
    70` sends every copy's hook to the original in alternate 4 s halves) removes scene noise for hooked copies.
    A port's own A/B targets take numbers 256-511 (port 188): the base's are 1-255, and it never takes a
    number from 256 up, so a sync cannot meet a port's own.
+   `python tools/ab_halves.py LOG` sums the halves per target (GPU, CPU, per draw); `--pairs` keeps only the lines
+   whose halves drew the same number of draws a frame. Pick the half length and the number of targets so the A/B
+   cycle does not match a loop of the game's own (banjo-nx, port 235: N&B's title loop repeats every ~180 s, as
+   three targets of 30 s halves, so each target kept meeting the same scenes).
 
 ---
 

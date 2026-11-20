@@ -36,6 +36,16 @@ what the machine copies leave out.
 to a caller that reads only results). Check it on each game before trusting it: `python tools/cc_entry_census.py` must
 end with "none", and every read `python tools/cc_exit_census.py` lists must be value-independent. If a game breaks it,
 generate with `SASRT_REG_LIVENESS_EXIT_ABI=0` (and `SASRT_REG_LIVENESS_HOOKS_ABI=0` for a vector hit).
+A pointer-reached function that reads a scratch vector register on entry (port 224, N&B's v0) can instead be
+listed in `app/config/scratch_vectors_read_on_entry.txt` (a register per line, `#` comments with the function and
+why): that register stays live at every indirect call, and `cc_entry_census.py` names it and ends with "none".
+`python tools/cc_exit_reads.py` names the form of each read `cc_exit_census.py` lists.
+
+**A first configure before any code generation** (banjo-nx's rebase, 2026-11-19) leaves out the generated sources:
+`generated/rexglue.cmake` adds the recomp target and `renut_pch.h`'s folder only when `generated/sources.cmake`
+exists at configure time. `tools/build_pc.bat` generates first when `generated/rexglue.cmake` is missing (port
+197); a build that still stops at "'renut_pch.h' file not found" needs a configure after the code generation
+(touch `app/CMakeLists.txt` and build again). `tools/build_pc.bat` builds without Renut unless `RENUT=ON`.
 
 ## 3. The shaders
 

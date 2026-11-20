@@ -20,6 +20,8 @@ Correctness fixes, not speed-ups: off because they break a game the base also se
 
 | Key | What it does | Why it is off | Speed | Who turns it on |
 |---|---|---|---|---|
+| `sasrt_renut_depth_restore` (port 29; port 202) | A depth target bound over EDRAM a 32-bit colour target wrote since takes its words as its depth, as on the console. | It drew Sonic 4's title sky white (S4ep1-nx: its reflection pass draws a resolved depth back as colour into EDRAM the main pass's depth shares); its PC A/B with it off gives the console's picture. Katamari never reaches it | A fix, not a speed-up | sasrt-nx |
+| `RENUT_ALPHA_TEST_UNORM8` (define in shader_common.h; port 209) | The alpha test compares the alpha and the reference on the 8-bit grid (rounded times 255). | A picture change for every game with an alpha test; culdcept-nx's models (ALPHAREF 255 against a white vertex colour) needed it on the PC | A fix, not a speed-up | culdcept-nx (1) |
 | `blur_renut_wipe_overwritten` (A/B 218, port 76) | vivapinata-nx's EDRAM wipe (a clear through another layout, applied at the wiped target's next resolve) by exact tile spans, and skipped when another view over the same tiles drew or cleared after it. Blur's frame came out black with the old rule. | vivapinata-nx (2026-11-11), against the SDK's emulated GPU: its fade frames at the attract mode's cuts came out 5-8 % white (fog) with it on, 0 % off and on the reference. The case it misses: a clear through another layout at the same EDRAM base that covers every tile of the mask's target. Off = vivapinata-nx's rule (port 77). | A fix, not a speed-up | blur-nx |
 | `banjo_renut_replay_inherits` (halo3-nx) | A replayed command buffer draws with the running device plus only what its recording set, as on the console. Off, each recording's whole device is used, and a recording on a device of its own (Halo 3's no-hardware device) has no targets, so its draws are dropped. | vivapinata-nx (2026-11-11): a hard shadow under its title logo with it on (2,378 dark grass pixels at 21 s), 0 off and on the emulated GPU; its mask's normal frames 5-9 % white on, 2.4-5.9 % off (the reference 2.5-5 %). Port 67's set_words fix does not cure it. Off since port 77. | A fix, not a speed-up | halo3-nx, and any game that records on a device of its own |
 | `blur_renut_edram_inherit` (A/B 220, port 76) | Before a draw that keeps part of its target (a partial write mask, or blending), the target takes what other views wrote over its EDRAM tiles since (a full-target copy draw; Blur's motion-blurred frames). | vivapinata-nx (2026-11-11), on the console: a band of garbage tiles over the top 960x48 pixels of its title screen (12x3 EDRAM tiles, dark scrambled scene content), at first entry and after every attract fly-through; off, none; the PC (D3D12) shows none either way, so it is the deko3d side (port 76 added the multisampled source's bind there). Off since port 86. | A fix, not a speed-up (it adds a copy draw) | blur-nx |
@@ -162,6 +164,25 @@ one turns it on in its toml.
 | `banjo_renut_edram_carry` | 179 | a colour target first drawn in a frame without a clear starts from the picture last written over its EDRAM base (scaled; idle while blur_renut_edram_inherit is on) |
 
 `banjo_deko3d_swap_interval` (port 165) is a setting, 1 as before.
+
+## 7. Keys on in the base that a port turned off for its game (reported, not confirmed here)
+
+Each is a port's own finding on its own game. None comes with a comparison against a reference that shows what breaks,
+so the base's default stays; a port that sees the same turns the key off in its toml after its own A/B.
+
+| Key (default here) | The port and what it says | Its evidence |
+|---|---|---|
+| `banjo_late_input` (on) | S4ep1-nx (2026-11-15): Sonic 4 reads its controller on a frame thread of its own, not on the thread that swaps; the delay held that thread back and the game ran at a quarter speed on Renut. The key assumes input is read on the thread that swaps: check where a new game reads it | 152-284 steps in 10 s against 845-889 (its slow-motion check). A behaviour fault, not a picture one: the default is the user's call |
+| `banjo_deko3d_native_16bit` (on) | deadpool-nx (cc060d4a): off "to prevent black 16-bit texture corruption on Switch" (Deadpool, Unreal Engine 3) | None given |
+| `blur_renut_texture_pool` (on) | deadpool-nx: off "to avoid stale render target reuse" | None given |
+| `banjo_renut_dynamic_texture_rows`, `banjo_renut_stream_redeem` (on) | deadpool-nx: off "for UE3 streaming safety", "for UE3 vertex safety" | None given |
+| `banjo_async_present` (on) | deadpool-nx: off "to prevent 60-130ms frame-pacing latency spikes" | The numbers only |
+| `blur_small_alloc_mb` (32) | deadpool-nx: 0 (Unreal Engine 3's own allocator) | None given |
+| `spin_hint_yield` (codegen, on) | deadpool-nx: off "for UE3 spinlock efficiency" | None given |
+| `banjo_renut_keep_unused_targets` (on) | deadpool-nx (ea2dffc5): off | None given |
+
+deadpool-nx also turned on `blur_renut_edram_inherit` (off here, port 86), `audio_xma_output_done_when_drained` and
+`audio_xma_kick_wake_idle_only` (off here) for Deadpool.
 
 ## Keeping this page
 

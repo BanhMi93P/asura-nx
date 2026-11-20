@@ -59,8 +59,10 @@ The method: a full rebase, not a merge
 Inputs
 - The original project: <PORT_DIR> (git, shipped branch and release: <SHIPPED>). The shipped branch is never changed and
   never pushed. Do the rebase in a new git worktree, <WORKTREE>, on a new branch `ultimate` (git worktree add -b
-  ultimate), and make its first commit the base's tree ("the ultimate base at <commit>"). Commit locally as you go, with
-  my GitHub noreply address; never push unless I ask.
+  ultimate), and make its first commit the base's tree ("the ultimate base at <commit>"). Compare that commit's `git
+  ls-files` with the base's: files the base tracks past an ignore rule (FFmpeg's configure-made headers, port 190) are
+  lost by a plain copy and `git add -A`. Commit locally as you go, with my GitHub noreply address; never push unless I
+  ask.
 - The base, read-only (do not modify it): <BASE_DIR>, branch ultimate, its latest commit (docs\changelog.md has a line
   per port). Web installer template, read-only: <INSTALLER_DIR>.
 - Game files (title ID <TITLE_ID>, Direct3D <XDK>): <GAME_FILES>. Title update and DLC: <UPDATE_AND_DLC>. If the
@@ -128,11 +130,13 @@ The work, in order
    the passes run on each (post_codegen.py --gen per folder, or the full passes on the main module only: say which and
    why), and check that they find the files by the project's name (port 186), that pointer_fixpoint and direct_calls
    see every module, and that the cross-module calls still resolve.
-3. Code generation and the PC port: tools\codegen.ps1 with the game's manifest and config, then python
-   tools\post_codegen.py in full (a run whose generator says "up to date" writes nothing: use rexglue codegen
+3. Code generation and the PC port: tools\codegen.ps1 with the game's manifest and config (on a new tree it also writes
+   app\generated\rexglue.cmake, which the PC build's configure includes), then python tools\post_codegen.py in full (a run whose generator says "up to date" writes nothing: use rexglue codegen
    --ignore-stamp when the generated text must be fresh). PC build, to gameplay with the title update and DLC. Fix
    what stops it; record each fix in docs\<SHORT>-ultimate-notes.md. Then tools\run_pc_verify.ps1 on the machine
-   copies: 0 differences.
+   copies: 0 differences. Then python tools\built_ptr_scan.py (port 191): every code address the game builds in code
+   that no translated function starts at is a callback that stops the game the first time it runs; register each real
+   one with its evidence.
 4. Check the calling convention before trusting the machine copies' liveness: tools\cc_entry_census.py and
    tools\cc_exit_census.py on the generated tree (every module). The entry census must say none; every read the exit
    census lists must be value-independent (look at each). If not, generate with SASRT_REG_LIVENESS_EXIT_ABI=0 (and

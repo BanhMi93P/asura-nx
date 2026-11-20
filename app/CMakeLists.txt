@@ -187,8 +187,13 @@ endif()
 # katamari-nx (2026-10-30): banjo-nx's app without the files written for N&B's addresses (its cheats and mid-asm
 # hooks, title update and DLC, the D3D hook layer of banjo-nx's PM4 renderer, its XAudio and hand-written natives, the
 # shader harvest): src/katamari_keys.cpp defines the keys of those files that the kept ones still read.
+# renut-ultimate (2026-11-20, port 193): the game's name in the build stamp (src/build_stamp.cpp) and the NRO's title. A
+# port sets its own here.
+set(RENUT_GAME_NAME "Beautiful Katamari")
+
 set(RENUT_SOURCES
     src/main.cpp
+    src/build_stamp.cpp  # port 193: the build stamp, the first line of every log (cmake/build_stamp.cmake)
     src/katamari_keys.cpp
     src/game_menu.cpp  # blur-nx (2026-11-18): the game menu (A+B+X+Y+L+R on the Switch, F8 on the PC)
     src/blur_small_alloc.cpp  # blur-nx (2026-11-17, #220; port 151): small C++ allocations per thread (Switch; 32 MB)
@@ -265,6 +270,24 @@ else()
     add_executable(renut ${RENUT_SOURCES})
 endif()
 
+# Port 193 (TFU-nx's): the build stamp header, rewritten on every build when its text changes (a custom target with no
+# output runs every time; the script leaves the header alone when the commit is the same).
+if(REXGLUE_PLATFORM_SWITCH)
+    set(RENUT_BUILD_KIND "switch")
+else()
+    set(RENUT_BUILD_KIND "pc")
+endif()
+set(RENUT_BUILD_STAMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/build_stamp")
+add_custom_target(renut_build_stamp
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${RENUT_BUILD_STAMP_DIR}"
+    COMMAND "${CMAKE_COMMAND}" "-DOUT=${RENUT_BUILD_STAMP_DIR}/build_stamp.h" "-DROOT=${CMAKE_CURRENT_SOURCE_DIR}/.."
+            "-DKIND=${RENUT_BUILD_KIND}" "-DNAME=${RENUT_GAME_NAME}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_stamp.cmake"
+    BYPRODUCTS "${RENUT_BUILD_STAMP_DIR}/build_stamp.h"
+    VERBATIM)
+add_dependencies(renut renut_build_stamp)
+target_include_directories(renut PRIVATE "${RENUT_BUILD_STAMP_DIR}")
+set_source_files_properties(src/build_stamp.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 # GPU_PLUGINS stages the emulated-GPU backend (rexgpu-xenos.dll) next to the exe.
 # It is only used when the gpu_plugin cvar is "xenos"; empty means no GPU at all
 # (the game runs but the screen stays black).
@@ -308,9 +331,15 @@ option(BANJO_GENERATED_MATH_FLAGS "-fno-math-errno on the generated game code" O
 option(BANJO_GENERATED_NO_TRAPPING_MATH "-fno-trapping-math on the generated game code (not exact, see the comment)" OFF)
 if(BANJO_GENERATED_MATH_FLAGS AND TARGET renut_recomp AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(renut_recomp PRIVATE -fno-math-errno)
-    if(BANJO_GENERATED_NO_TRAPPING_MATH)
+    # banjo-nx (2026-11-19, the rebase; blur-nx's BLUR_NO_TRAPPING_MATH form, 2026-11-16, CG-26): only with
+    # BLUR_FPCR_ONE_MODE (no flush-mode switches left in game code), and the files that write the guest FPSCR keep
+    # -ftrapping-math (tools/fp_env_files.py's list, below the round definitions).
+    if(BANJO_GENERATED_NO_TRAPPING_MATH AND BLUR_FPCR_ONE_MODE)
         target_compile_options(renut_recomp PRIVATE -fno-trapping-math)
     endif()
+endif()
+if(BANJO_GENERATED_NO_TRAPPING_MATH AND NOT BLUR_FPCR_ONE_MODE)
+    message(WARNING "banjo: BANJO_GENERATED_NO_TRAPPING_MATH needs BLUR_FPCR_ONE_MODE (the flush-mode switches); left off")
 endif()
 
 # The localized native copies (src/cpu/banjo_hot_guest.cpp includes generated/hot) are game code compiled in the app:
@@ -335,6 +364,10 @@ set(BANJO_HOT_SOURCES src/cpu/banjo_hot_guest.cpp
 )
 if(BANJO_GENERATED_MATH_FLAGS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -fno-math-errno)
+    # banjo-nx (2026-11-19; blur-nx's form): the copies as the game code (the guard compares them with it).
+    if(BANJO_GENERATED_NO_TRAPPING_MATH AND BLUR_FPCR_ONE_MODE)
+        set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -fno-trapping-math)
+    endif()
 endif()
 if(NOT REXGLUE_PLATFORM_SWITCH)
     set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_DEFINITIONS REX_DIET_CENSUS_ON)
@@ -642,6 +675,31 @@ foreach(_banjo_target renut_recomp renut)
 endforeach()
 message(STATUS "banjo: sa2-nx's CPU rounds: definitions '${_banjo_round_definitions}'")
 
+# banjo-nx (2026-11-19, the rebase; blur-nx's form, 2026-11-16): with BANJO_GENERATED_NO_TRAPPING_MATH, the files that
+# write the guest FPSCR (mtfsf and kin: the rounding mode) back to -ftrapping-math, tools/fp_env_files.py's list (a
+# source's option comes after its target's on the command line, so it wins): GCC would otherwise move a float
+# operation across the mode write. Without the list (no post-codegen run yet) the switch stays off.
+if(BANJO_GENERATED_NO_TRAPPING_MATH AND BLUR_FPCR_ONE_MODE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(_banjo_fp_env_list "${CMAKE_CURRENT_SOURCE_DIR}/generated/fp_env_files.txt")
+    if(EXISTS "${_banjo_fp_env_list}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_banjo_fp_env_list}")
+        file(STRINGS "${_banjo_fp_env_list}" _banjo_fp_env_files)
+        foreach(_banjo_f ${_banjo_fp_env_files})
+            set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${_banjo_f}" APPEND PROPERTY COMPILE_OPTIONS
+                         -ftrapping-math)
+        endforeach()
+        list(LENGTH _banjo_fp_env_files _banjo_fp_env_count)
+        message(STATUS "banjo: -fno-trapping-math, but ${_banjo_fp_env_count} FPSCR-writing files keep -ftrapping-math")
+    else()
+        message(WARNING "banjo: ${_banjo_fp_env_list} is missing (tools/post_codegen.py writes it): the game code "
+                "keeps -ftrapping-math")
+        if(TARGET renut_recomp)
+            target_compile_options(renut_recomp PRIVATE -ftrapping-math)
+        endif()
+        set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -ftrapping-math)
+    endif()
+endif()
+
 # banjo-nx (2026-10-21, the user's request): link-time and profile-guided optimisation of the Switch build, from
 # sa2-nx (its app/CMakeLists.txt and docs/enhancements.md, "Link-time optimisation of a recompiled program"). Both OFF
 # in the everyday build folder (app/out/switch): a release is built in folders of its own (docs/pgo-lto.md).
@@ -898,7 +956,7 @@ if(REXGLUE_PLATFORM_SWITCH)
     # katamari-nx (2026-11-02, the user's request): author ChanseyIsTheBest, the user's icon (the cover art).
     # 2026-11-05: version 1.0.1, the game's memory and the NRO's code on 2 MB blocks, and the boot's cvars.
     rexglue_switch_add_nro(renut
-        NAME "Beautiful Katamari"
+        NAME "${RENUT_GAME_NAME}"  # port 193: set once, above
         AUTHOR "ChanseyIsTheBest"
         VERSION "1.0.1"
         ${RENUT_ICON_ARG})
