@@ -183,8 +183,15 @@ void InstallPackages(rex::Runtime *runtime) {
         const fs::path header = InstalledHeader(title_id, file_name);
         const bool listed = std::find(installed.begin(), installed.end(), entry) != installed.end();
         const bool header_there = !header.empty() && fs::exists(header, ec);
-        if (header_there || (header.empty() && listed)) {
+        const fs::path package_dir = g_user_data_root.empty() ? fs::path{} :
+            g_user_data_root / kProfileFolder / HexTitle(title_id) / kContentTypeFolder / file_name;
+        const bool content_there = !package_dir.empty() && fs::exists(package_dir, ec) && !fs::is_empty(package_dir, ec);
+        if (listed || header_there || content_there) {
             ++present;
+            if (!listed) {
+                installed.push_back(entry);
+                list_changed = true;
+            }
             continue;
         }
 

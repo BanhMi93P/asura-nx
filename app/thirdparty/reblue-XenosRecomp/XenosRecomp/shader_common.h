@@ -46,6 +46,15 @@
     X(Normal,    1, 27)
 #endif
 
+#if !defined(RENUT_VERTEX_INPUTS_MORPH)
+#define RENUT_VERTEX_INPUTS_29_31(X) \
+    X(Position,  5, 29) \
+    X(Position,  6, 30) \
+    X(Position,  7, 31)
+#else
+#define RENUT_VERTEX_INPUTS_29_31(X)
+#endif
+
 // SPIR-V vertex input locations for reNut, shared with its host input-layout
 // builder. Covers every vertex element N&B's shaders declare. Like reblue's
 // above, only a define: the recompiler reads it under RENUT_RECOMP.
@@ -74,7 +83,8 @@
     X(TexCoord,  9, 21) \
     X(TexCoord, 10, 22) \
     RENUT_VERTEX_INPUTS_23_27(X) \
-    X(Tangent,   1, 28)  /* rr6-nx (23 there) */
+    X(Tangent,   1, 28)  /* rr6-nx (23 there) */ \
+    RENUT_VERTEX_INPUTS_29_31(X)
 
 // SPEC_CONSTANTS_ONLY keeps the HLSL below out of host C++ TUs, which IntelliSense would otherwise parse.
 #if (!defined(__cplusplus) || defined(__INTELLISENSE__)) && !defined(SHADER_COMMON_SPEC_CONSTANTS_ONLY)

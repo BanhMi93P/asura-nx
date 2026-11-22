@@ -53,6 +53,11 @@ struct ShaderLiteral {
 };
 extern ShaderLiteral g_shaderLiterals[];
 
+struct PixelShaderPhysicalAlias {
+  uint64_t phys_hash;
+  uint64_t entry_hash;
+};
+
 // A vertex element as the shader's vfetch describes it: what a vertex
 // declaration bound to the shader would say.
 struct ShaderVertexInput {

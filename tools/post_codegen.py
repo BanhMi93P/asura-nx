@@ -84,7 +84,8 @@ def tool(name):
 
 def main():
     gen = sys.argv[sys.argv.index('--gen') + 1] if '--gen' in sys.argv else GEN
-    scratch = os.path.abspath(gen) != os.path.abspath(GEN)  # a copy for measurements: no flavour file
+    default_gen = os.path.join(APP, 'generated', 'default')
+    scratch = os.path.abspath(gen) not in (os.path.abspath(GEN), os.path.abspath(default_gen))  # a copy for measurements: no flavour file
     pch = gen_file(gen, 'pch.h')
     if not os.path.isfile(IMAGE):
         sys.exit('post_codegen: out/renut_image.bin is missing (the image dump of the code generator): run the PC '
@@ -222,15 +223,19 @@ def main():
         # step above, so each copy matches the function the build compiles. The list is app/src/cpu/hot/localized.txt;
         # direct_calls.py (above) has already sent the callers of those functions through their hooks.
         # 2026-10-22: and the bulk list (app/src/cpu/hot/localized_bulk.txt, from the console profiles: tools/switch_hot_bulk.py).
-        run(tool('localize_native.py'), '--list', '--bulk')
+        run(tool('localize_native.py'), '--gen', gen, '--list', '--bulk')
         # cpu_aggressive B: the XAudio limiter's copy computes log10 only where the dB value is read (the recompiled
         # original stays as it is: the hook's guard compares the two). Switch back: BANJO_HOT_LAZY_LOG10=OFF
         # (-DBANJO_LAZY_LOG10_ON=0) or the key banjo_cpu_native_sub_82B6A678.
-        run(tool('limiter_lazy_log10.py'), '--hot', os.path.join(gen, 'hot'))
+        if os.path.isfile(os.path.join(gen, 'hot', 'n_82B6A678.h')):
+            run(tool('limiter_lazy_log10.py'), '--hot', os.path.join(gen, 'hot'))
     # cpu_aggressive C: the script interpreters' jump-table dispatch threaded into each handler (computed gotos, GCC
     # cross-jumping off for these functions only). Switch back: REX_SWITCH_THREAD_OFF / REX_SWITCH_GOTO_OFF.
-    run(tool('switch_goto.py'), '--gen', gen, '--thread', '--only',
-        'sub_8299D480,sub_829A75E8,sub_8299E2E8,sub_82C3D4E8,sub_829AA068')
+    init_cpp = gen_file(gen, 'init.cpp')
+    init_text = open(init_cpp, encoding='utf-8', errors='ignore').read() if os.path.isfile(init_cpp) else ''
+    if 'sub_8299D480' in init_text:
+        run(tool('switch_goto.py'), '--gen', gen, '--thread', '--only',
+            'sub_8299D480,sub_829A75E8,sub_8299E2E8,sub_82C3D4E8,sub_829AA068')
     # cpu_aggressive D: proven link-register write-backs (the value ctx.lr already holds) compile to nothing on the
     # Switch; REX_LR_WRITE_SAME_CHECK (PC verify) tests every one. Before r1_local.py (its patterns name ctx.r1).
     proofs = os.path.join(ROOT, 'out', 'cpu_aggressive_proofs')
@@ -291,7 +296,7 @@ def main():
     if old_text != text:
         with open(path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(text)
-    keep_unchanged_times(GEN)
+    keep_unchanged_times(gen)
     print('post_codegen: optimised codegen steps done')
 
 
@@ -310,9 +315,9 @@ def keep_unchanged_times(gen):
     new = {}
     kept = 0
     # The inputs of the generator's build step besides the manifest (codegen.d, and the generator itself).
-    inputs = [os.path.join(os.path.dirname(gen), 'renut_config.toml'), os.path.join(os.path.dirname(gen), 'assets',
-              'default.xex'), os.path.join(os.path.dirname(gen), 'config', 'renut_funcs.toml'),
-              os.path.join(os.path.dirname(gen), 'config', 'renut_hooks.toml'),
+    inputs = [os.path.join(APP, 'renut_config.toml'), os.path.join(APP, 'assets', 'default.xex'),
+              os.path.join(APP, 'config', 'asurawrath_funcs.toml'), os.path.join(APP, 'config', 'renut_funcs.toml'),
+              os.path.join(APP, 'config', 'renut_hooks.toml'),
               os.path.join(os.environ.get('REXSDK_DIR', os.path.join(ROOT, 'sdk')), 'out', 'win-amd64', 'rexglue.exe')]
     floor = max([os.stat(p).st_mtime_ns for p in inputs if os.path.isfile(p)] or [0])
     paths = []
@@ -339,7 +344,8 @@ def keep_unchanged_times(gen):
     # The generator also writes its manifest again on every run (the sdk_version stamp, the same text). It is an input
     # of its own build step (codegen.d): a manifest newer than the outputs kept above made every build run the
     # generator again. It gets a time a second before the oldest output (it was read before any of them was written).
-    manifest = os.path.join(os.path.dirname(gen), 'renut_manifest.toml')
+    asura_manifest = os.path.join(APP, 'asurawrath_manifest.toml')
+    manifest = asura_manifest if os.path.isfile(asura_manifest) else os.path.join(APP, 'renut_manifest.toml')
     if new and os.path.isfile(manifest):
         oldest = min(os.stat(os.path.join(gen, rel)).st_mtime_ns for rel in new)
         if os.stat(manifest).st_mtime_ns > oldest:

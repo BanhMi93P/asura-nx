@@ -493,6 +493,14 @@ namespace plume {
         // zero stream at every draw).
         DkBufExtents boundVtx[16]{};
         uint32_t boundVtxValid = 0;
+        DkVtxAttribState boundVtxAttrib[32]{};
+        uint32_t boundVtxAttribCount = 0;
+        bool boundVtxAttribValid = false;
+        DkVtxBufferState boundVtxBufState[16]{};
+        uint32_t boundVtxBufStateCount = 0;
+        bool boundVtxBufStateValid = false;
+        uint32_t drawVtxStrideMask = 0;
+        uint32_t drawVtxStride[16]{};
         // banjo-nx (2026-10-23, batch 6): a slot or the graphics pipeline changed since bindGraphicsBuffers last ran
         // (with neither, every slot its pipeline reads is bound for its stages already: the walk binds nothing).
         bool graphicsBuffersDirty = true;
@@ -561,6 +569,8 @@ namespace plume {
         void setRaytracingDescriptorSet(RenderDescriptorSet *descriptorSet, uint32_t setIndex) override;
         void setIndexBuffer(const RenderIndexBufferView *view) override;
         void setVertexBuffers(uint32_t startSlot, const RenderVertexBufferView *views, uint32_t viewCount, const RenderInputSlot *inputSlots) override;
+        void bindVtxAttribStateChecked(const DkVtxAttribState *states, uint32_t count);
+        void bindVtxBufferStateChecked(const DkVtxBufferState *base, uint32_t count);
         void setViewports(const RenderViewport *viewports, uint32_t count) override;
         void setScissors(const RenderRect *scissorRects, uint32_t count) override;
         void setFramebuffer(const RenderFramebuffer *framebuffer) override;

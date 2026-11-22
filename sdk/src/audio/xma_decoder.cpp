@@ -63,7 +63,8 @@ REXCVAR_DEFINE_INT32(audio_xma_in_worker, REX_XMA_IN_WORKER_BY_DEFAULT, "Audio",
                      "Who decodes the XMA when a kick arrives (XMAEnableContext): 0 = the requesting thread, "
                      "as before; 1 = the XMA Decoder thread, which on the Switch runs at 0x2B and is not preempted by "
                      "the GPU ring; 2 = the worker, and the thread that requests the kick only finishes the "
-                     "contexts the worker has not picked up (for the PC, where those priorities do not exist)");
+                     "contexts the worker has not picked up (for the PC, where those priorities do not exist); "
+                     "3 = inline on the requesting thread without waking the XMA Decoder worker (for Switch Core 3 audio offload where mixer and worker share Core 3, eliminating ~65k ctx switches/10s)");
 
 // As with normal Microsoft, there are like twelve different ways to access
 // the audio APIs. Early games use XMA*() methods almost exclusively to touch
@@ -612,7 +613,7 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
     const int32_t worker_mode = REXCVAR_GET(audio_xma_in_worker);
     const int64_t kick_before = NowNs();
     uint64_t kick_contexts = 0;
-    if (worker_mode != 0) {
+    if (worker_mode == 1 || worker_mode == 2) {
       uint32_t marked = kicked_value;
       for (int i = 0; marked && i < 32; ++i, marked >>= 1) {
         if (marked & 1) {
@@ -641,7 +642,7 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
           continue;  // the worker has taken it
         }
         ++kick_contexts;
-        if (worker_mode != 0) {
+        if (worker_mode == 1 || worker_mode == 2) {
           g_measurement_xma.contexts_backup.fetch_add(1, std::memory_order_relaxed);
         }
         if (context.Work()) {
@@ -675,7 +676,7 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
         uint32_t context_id = base_context_id + i;
         auto& context = contexts_[context_id];
         ++lock_contexts;
-        if (worker_mode != 0) {
+        if (worker_mode == 1 || worker_mode == 2) {
           // Drain any pending kick before Disable() clears is_enabled_, including when the
           // worker just took the pending bit but hasn't acquired context.lock_ yet.
           const bool took = TakePending(context_id);

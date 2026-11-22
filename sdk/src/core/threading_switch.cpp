@@ -405,6 +405,10 @@ bool RexSwitchSetCurrentThreadMask(int preferred, unsigned long long mask) {
     }
     h = CUR_THREAD_HANDLE;
   }
+  const int sys_core = RexSwitchSystemCore();
+  if (sys_core >= 0 && current == (u64(1) << sys_core)) {
+    return false;
+  }
   const u64 m = u64(mask) & 0x7;  // the process's three cores
   if (m == 0 || preferred < 0 || !(m & (u64(1) << preferred))) {
     return false;
@@ -581,13 +585,18 @@ int RexSwitchInitSystemCore(void) {
     ReadSystemCore(true);
   }
   // The main thread: NetherSX2_nx's forwarder hands it over with the whole grant (restoreMainThreadAffinity).
+  // Keep main (UI) (priority 0x2C) off Core 0 when other app cores exist so UI/ImGui never preempts Main XThread (0x30).
   const u32 strip = g_strip_mask.load(std::memory_order_relaxed);
-  if (strip != 0) {
-    s32 preferred = 0;
-    u64 mask = 0;
-    if (R_SUCCEEDED(svcGetThreadCoreMask(&preferred, &mask, CUR_THREAD_HANDLE)) && (mask & strip) != 0 &&
-        (mask & ~u64(strip)) != 0) {
-      svcSetThreadCoreMask(CUR_THREAD_HANDLE, -1, u32(mask));  // (the wrap takes the system core out)
+  s32 preferred = 0;
+  u64 mask = 0;
+  if (R_SUCCEEDED(svcGetThreadCoreMask(&preferred, &mask, CUR_THREAD_HANDLE)) && mask != 0) {
+    u64 ui_mask = (mask & ~u64(strip)) ? (mask & ~u64(strip)) : mask;
+    if ((ui_mask & 1ull) != 0 && (ui_mask & ~1ull) != 0) {
+      ui_mask &= ~1ull;
+    }
+    const s32 ui_pref = (ui_mask & 4ull) ? 2 : __builtin_ctzll(ui_mask);
+    if (ui_mask != mask || preferred == 0 || (strip != 0 && preferred >= 0 && ((strip >> preferred) & 1u))) {
+      svcSetThreadCoreMask(CUR_THREAD_HANDLE, ui_pref, u32(ui_mask));  // (leaves Core 0 dedicated to Main XThread)
     }
   }
   return g_system_core.load(std::memory_order_relaxed);

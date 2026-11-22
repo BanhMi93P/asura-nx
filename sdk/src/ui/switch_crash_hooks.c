@@ -38,13 +38,22 @@ extern int __system_argc;
 extern char** __system_argv;
 
 /* Ends in '/'. Computed once at startup and never changes: the fault handler reads it without allocating memory. */
-static char g_rex_log_dir[FS_MAX_PATH] = "sdmc:/switch/";
+static char g_rex_log_dir[FS_MAX_PATH] = "sdmc:/switch/asura-nx/logs/rex/";
 
 const char* RexSwitchLogDir(void) {
     return g_rex_log_dir;
 }
 
 static void RexSwitchInitLogDir(void) {
+    mkdir("sdmc:/switch", 0777);
+    mkdir("sdmc:/switch/asura-nx", 0777);
+    mkdir("sdmc:/switch/asura-nx/logs", 0777);
+    mkdir("sdmc:/switch/asura-nx/logs/rex", 0777);
+    mkdir("/switch", 0777);
+    mkdir("/switch/asura-nx", 0777);
+    mkdir("/switch/asura-nx/logs", 0777);
+    mkdir("/switch/asura-nx/logs/rex", 0777);
+
     if (__system_argc < 1 || !__system_argv || !__system_argv[0]) {
         return;
     }
@@ -77,7 +86,7 @@ void RexSwitchCrashLog(const char* reason, const ThreadExceptionDump* ctx, u64 s
  * every crash report, so each log is tied to its NRO and ELF. The app defines
  * it (app/src/build_stamp.cpp); this is the fallback. */
 __attribute__((weak)) const char* RexAppBuildStamp(void) {
-    return "unknown build";
+    return "Asura's Wrath NX 1.0.0";
 }
 
 /* Port 193 (TFU-nx's): the last launch's log kept as <name>.prev.log before the new one is made (a test often takes
@@ -166,6 +175,9 @@ static ssize_t RexStderrWrite(struct _reent* r, void* fd, const char* ptr, size_
     if (file < 0) return (ssize_t)len;
     return write(file, ptr, len);
 }
+
+__attribute__((weak)) void flockfile(FILE *f) { (void)f; }
+__attribute__((weak)) void funlockfile(FILE *f) { (void)f; }
 
 /* sdk/src/core/logging.cpp, once the log levels are known: on (1) when anything is logged. */
 void RexSwitchStderrToFile(int on) {

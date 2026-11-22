@@ -25,6 +25,11 @@
 #include "renut_engine/gpu/banjo_renut_deko3d.h"  // banjo-nx (2026-10-17): the deko3d back end's GLSL package
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+extern const PixelShaderPhysicalAlias g_pixelShaderPhysicalAliases[] __attribute__((weak));
+extern const size_t g_pixelShaderPhysicalAliasCount __attribute__((weak));
+#endif
+
 REXCVAR_DEFINE_STRING(renut_shader_capture_dir, "shader_capture", "Nuts&Bolts/Graphics",
                       "Where shaders missing from the shader cache are written; the next build "
                       "recompiles them into the cache");
@@ -143,6 +148,34 @@ const ShaderCacheEntry *FindShaderEntry(uint64_t hash) {
   const ShaderCacheEntry *it = std::lower_bound(
       begin, end, hash, [](const ShaderCacheEntry &e, uint64_t h) { return e.hash < h; });
   return (it != end && it->hash == hash) ? it : nullptr;
+}
+
+const ShaderCacheEntry *FindPixelShaderByPhysicalHash(const uint8_t *container) {
+#if defined(__GNUC__) || defined(__clang__)
+  if (!container || &g_pixelShaderPhysicalAliasCount == nullptr || g_pixelShaderPhysicalAliasCount == 0 ||
+      &g_pixelShaderPhysicalAliases[0] == nullptr) {
+    return nullptr;
+  }
+  const auto *header = reinterpret_cast<const d3d::ShaderContainer *>(container);
+  const u32 flags = header->flags;
+  const u32 vsize = header->virtualSize;
+  const u32 psize = header->physicalSize;
+  if ((flags & 0xFFFFFF01u) != 0x102A1100u || vsize < sizeof(d3d::ShaderContainer) ||
+      psize == 0 || psize > 0x100000u) {
+    return nullptr;
+  }
+  const uint64_t phys_hash = XXH3_64bits(container + vsize, psize);
+  const PixelShaderPhysicalAlias *begin = g_pixelShaderPhysicalAliases;
+  const PixelShaderPhysicalAlias *end = begin + g_pixelShaderPhysicalAliasCount;
+  const PixelShaderPhysicalAlias *it = std::lower_bound(
+      begin, end, phys_hash,
+      [](const PixelShaderPhysicalAlias &a, uint64_t h) { return a.phys_hash < h; });
+  if (it != end && it->phys_hash == phys_hash)
+    return FindShaderEntry(it->entry_hash);
+#else
+  (void)container;
+#endif
+  return nullptr;
 }
 
 void ShaderBoolSpecMask(const ShaderCacheEntry &entry, uint32_t mask[8]) {

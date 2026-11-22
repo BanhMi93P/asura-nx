@@ -1,0 +1,170 @@
+# Asura's Wrath for Nintendo Switch (asura-nx)
+# Static recompilation of the Xbox 360 game with ReXGlue, rendered natively via Deko3D.
+# Distribution package configuration (Ultimate Base stock-clock optimization pass).
+
+# =============================================================================
+# Core Renderer Settings (Deko3D ONLY)
+# =============================================================================
+gpu_plugin = ""
+banjo_renderer = "renut"
+renut_gpu_backend = "deko3d"
+masseffect_renderer_native = false
+banjo_mesa_disk_cache_off = true
+gpu_allow_invalid_fetch_constants = true
+readback_memexport = false
+readback_memexport_fast = false
+# Prevent stale EDRAM overlap clears from wiping SceneColor/SceneColorRaw on resolve
+blur_renut_wipe_overwritten = true
+# Complete pending GPU memexport readbacks to guest memory before D3D fences signal
+banjo_fence_waits_exports = true
+game_data_root = "game"
+renut_dlc_folder = "dlc"
+dlc_enabled = true
+update_data_root = ""
+
+# =============================================================================
+# Resolution (Manual 480p / 540p / 720p via + and - menu)
+# =============================================================================
+banjo_renut_dynamic_resolution = false
+banjo_renut_render_height_handheld = 720
+banjo_renut_render_height_docked = 720
+banjo_renut_dynamic_handheld_low = 540
+banjo_renut_dynamic_handheld_high = 720
+banjo_renut_dynamic_docked_low = 540
+banjo_renut_dynamic_docked_high = 720
+banjo_renut_dynamic_steps = 4
+sasrt_dynamic_lines_handheld = 36
+sasrt_dynamic_lines_docked = 36
+banjo_renut_dynamic_gpu_ms = 32.0
+banjo_renut_dynamic_up_s = 2.0
+sasrt_dynamic_cpu_aware = false
+
+# =============================================================================
+# GPU Bandwidth, Post-Process Precision & AA
+# =============================================================================
+disable_msaa = true
+msaa_level = 1
+banjo_renut_smaa = true
+banjo_renut_smaa_after_ps = "0848D159B1BB3BD6,34027F363068B89E,34C04860F00B79B2,38946B3533B63398,3E71AAA08AC3C717,42B6F780290DC5C5,49C008178EE85975,51366ADBE9A97C99,539D75E86A7F6CDA,53E801CF0AD5B39E,55FD5DCCDDD3CC93,63D1F81A0D27F8BD,6E59DFC95475F687,73CD92C9B5BA87D8,7D96B8A89AC94483,A0BBA32AE2106967,AA1DD081D94BB838,B170E73C2CDE8447,D7705C9BEC1F731C,D9D0E0EA8C6ED924,F5C5909F265F1675,F71ACAB87A02A6EB,FBD82ABC4BC9123D,FD5B9B9072BB01BD"
+banjo_renut_diag_smaa_compare_s = 0
+sasrt_gpu_handover_with_smaa = true
+renut_post_process_precision = "Game"
+banjo_renut_anisotropy_cap = 2
+sasrt_gpu_lazy_depth_resolve = true
+banjo_renut_stream_redeem = false
+sasrt_gpu_tiled_cache = true
+sasrt_gpu_export_list_topology = true
+banjo_deko3d_eager_kicks = false
+renut_format_7e3_rg11b10 = false
+banjo_deko3d_native_16bit = false
+asura_char_shadows = true
+asura_env_shadows = true
+asura_sync_view_skip_overwrite = true
+banjo_deko3d_background_compile_share = 60
+
+# =============================================================================
+# Audio (Core 3 Offload + Stereo Speaker Layout)
+# =============================================================================
+audio_speaker_config = 1
+audio_xma_in_worker = 3
+audio_xma_kick_without_lock = true
+audio_xma_kick_wake_idle_only = true
+audio_switch_pump_pairs = true
+
+# =============================================================================
+# Memory Governor Settings (Modeled after renut-nx / FFXIII-2-NX / SASRT M1-M41)
+# =============================================================================
+sasrt_memory_governor = true
+sasrt_memory_low_mb = 256
+sasrt_memory_critical_mb = 128
+sasrt_memory_emergency = true
+sasrt_dedicated_targets = true
+sasrt_region_best_fit = true
+sasrt_image_best_fit = true
+sasrt_retire_idle_targets_frames = 300
+sasrt_retire_stale_sets = 8
+sasrt_retire_current_idle_frames = 1800
+sasrt_target_block_cache_mb = 160
+sasrt_spare_stacks_idle_s = 60
+rex_io_ranges_auto_off_mb = 128
+switch_guest_stack_mb = 16
+switch_thread_stack_pool = 4
+
+# =============================================================================
+# Multi-Core Layout & Thread Placement
+# =============================================================================
+banjo_system_core = 1
+banjo_system_core_compiles = false
+banjo_system_core_uam = true
+banjo_system_core_xma = true
+banjo_system_core_mixer_priority = 45
+banjo_renut_core_layout = true
+switch_thread_priorities = "Main XThread=0x30"
+asura_physx_max_dt = 0.034
+xam_guest_signin = false
+
+# =============================================================================
+# Input & Controls
+# =============================================================================
+user_language = 1
+input_menu_combo = "PLUS+MINUS"
+input_xbox_layout = false
+input_joycon_sideways = true
+input_joycon_sideways_stick = true
+switch_software_keyboard = true
+
+# =============================================================================
+# Logging & Diagnostics (Release Mode)
+# =============================================================================
+log_level = "error"
+log_file_writer = false
+banjo_show_profiler = false
+banjo_show_fps = false
+banjo_stall_watch_seconds = 0
+switch_profile_stacks = false
+switch_perf_count_calls = false
+banjo_cpu_profiler = false
+renut_gpu_profile = 0.0
+banjo_renut_diag_gpu_shaders = false
+sasrt_gpu_diag_profile_vs = false
+sasrt_deko3d_diag_barriers = false
+banjo_deko3d_log_misses = false
+
+# =============================================================================
+# Controller Mappings
+# =============================================================================
+[input_p1]
+a = ""
+b = ""
+x = ""
+y = ""
+lb = ""
+rb = ""
+lt = ""
+rt = ""
+start = ""
+back = ""
+ls = ""
+rs = ""
+up = ""
+down = ""
+left = ""
+right = ""
+
+[input_p2]
+a = ""
+b = ""
+x = ""
+y = ""
+lb = ""
+rb = ""
+lt = ""
+rt = ""
+start = ""
+back = ""
+ls = ""
+rs = ""
+up = ""
+down = ""
+left = ""
+right = ""

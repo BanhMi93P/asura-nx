@@ -29,10 +29,9 @@ extern "C" char *fake_heap_end;  // libnx: the end of the malloc heap (the SDK's
 #include "renut_engine/gpu/log.h"
 #include "renut_engine/gpu/banjo_renut_record.h"  // banjo-nx (package 28b)
 
-REXCVAR_DEFINE_STRING(renut_gpu_backend, "d3d12", "Nuts&Bolts/Graphics",
-                      "Renderer backend: d3d12 or vulkan. Takes effect after a restart. "
-                      "Non-Windows builds always use vulkan. banjo-nx: deko3d on the Switch, plume's deko3d "
-                      "back end (docs/deko3d-renderer.md); elsewhere it means vulkan.")
+REXCVAR_DEFINE_STRING(renut_gpu_backend, "deko3d", "Nuts&Bolts/Graphics",
+                      "Renderer backend: d3d12, vulkan, or deko3d. Takes effect after a restart. "
+                      "On the Switch, deko3d uses plume's deko3d back end (docs/deko3d-renderer.md).")
     .allowed({"d3d12", "vulkan", "deko3d"})
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(renut_gpu_dred, false, "Nuts&Bolts/Graphics",

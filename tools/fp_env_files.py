@@ -39,7 +39,7 @@ def scan(gen):
     for name in sorted(os.listdir(gen)):
         if re.fullmatch(r'\w+_recomp\.\d+\.cpp', name) and has_write(  # port 186: any project's
             os.path.join(gen, name)):
-            files.append('generated/' + name)
+            files.append(os.path.relpath(os.path.join(gen, name), APP).replace('\\', '/'))
     hot = os.path.join(gen, 'hot')
     if os.path.isdir(hot):
         writers = {n for n in os.listdir(hot) if n.startswith('n_') and n.endswith('.h') and
@@ -75,6 +75,15 @@ def main():
     if old != text:
         with open(out, 'w', encoding='utf-8', newline='\n') as f:
             f.write(text)
+    cmake_out = os.path.join(APP, 'generated', 'fp_env_files.txt')
+    if os.path.abspath(cmake_out) != os.path.abspath(out):
+        try:
+            old_c = open(cmake_out, encoding='utf-8').read()
+        except OSError:
+            old_c = None
+        if old_c != text:
+            with open(cmake_out, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(text)
     print('fp_env_files: %d files write the guest FPSCR (they keep -ftrapping-math)' % len(files))
     if args.print:
         sys.stdout.write(text)

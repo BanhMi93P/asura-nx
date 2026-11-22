@@ -132,6 +132,13 @@ struct HostTexture {
   // banjo-nx (2026-10-18): a resolve destination as the target of DrawResolveCopy (draw.cpp), made at its first one.
   std::unique_ptr<plume::RenderFramebuffer> copy_framebuffer;
   uint64_t resolves = 0;
+  // Monotonic sequence bumped each time a color resolve writes this destination,
+  // and whether a stacked 2D array texture aliases its tiled slices.
+  uint64_t color_resolve_seq = 0;
+  bool has_stacked_alias = false;
+  bool stacked_render_target = false;
+  std::vector<std::unique_ptr<plume::RenderTextureView>> stacked_layer_views;
+  std::vector<std::unique_ptr<plume::RenderFramebuffer>> stacked_layer_framebuffers;
   // banjo-nx (2026-10-19, banjo_renut_resolve_skip): the signature of the last resolve into it (render/draw.cpp), 0 once
   // anything else wrote it (an upload, a words copy).
   uint64_t resolve_signature = 0;
@@ -183,6 +190,7 @@ struct TextureBinding {
   // The scale its host levels reach (HostTexture::extra_levels), 1x without
   // them; the sampler takes it (SamplerSlotLocked).
   RenderScale lod_scale;
+  bool hw_srgb = false;
 };
 
 // Flags on a stacked texture's 3D descriptor index (RENUT_STACKED_TEXTURE,

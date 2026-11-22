@@ -190,22 +190,28 @@ bool TurnedOffInToml() {
   const char* nro = __system_argv[0];
   const char* bar = strrchr(nro, '/');
   if (!bar) return false;
-  char path[FS_MAX_PATH];
-  const int n = snprintf(path, sizeof(path), "%s%.*skatamari.toml", strchr(nro, ':') ? "" : "sdmc:",
-                         static_cast<int>(bar - nro + 1), nro);
-  if (n <= 0 || static_cast<size_t>(n) >= sizeof(path)) return false;
-  FILE* f = fopen(path, "r");
-  if (!f) return false;
-  bool off = false;
-  char line[256];
-  static const char kKey[] = "banjo_code_blocks";
-  while (fgets(line, sizeof(line), f)) {
-    const char* p = line;
-    while (*p == ' ' || *p == '\t') p++;
-    if (strncmp(p, kKey, sizeof(kKey) - 1) == 0 && strstr(p, "false")) off = true;
+  const char* toml_names[] = {"asurawrath_nx.toml", "asura_wrath_recomp.toml", "katamari.toml"};
+  for (const char* toml_name : toml_names) {
+    char path[FS_MAX_PATH];
+    const int n = snprintf(path, sizeof(path), "%s%.*s%s", strchr(nro, ':') ? "" : "sdmc:",
+                           static_cast<int>(bar - nro + 1), nro, toml_name);
+    if (n <= 0 || static_cast<size_t>(n) >= sizeof(path)) continue;
+    FILE* f = fopen(path, "r");
+    if (!f) continue;
+    bool off = false;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+      const char* p = line;
+      while (*p == ' ' || *p == '\t') p++;
+      if ((strncmp(p, "asura_code_blocks", 17) == 0 || strncmp(p, "banjo_code_blocks", 17) == 0) &&
+          strstr(p, "false")) {
+        off = true;
+      }
+    }
+    fclose(f);
+    if (off) return true;
   }
-  fclose(f);
-  return off;
+  return false;
 }
 
 /*

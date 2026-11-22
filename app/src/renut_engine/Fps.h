@@ -1,13 +1,16 @@
 #pragma once
+#include "imgui.h"
+#include "renut_engine/overlays/app_imgui.h" // renut-ultimate (port 66)
+#include <algorithm>
+#include <chrono>
+#include <memory>
 #include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/keybinds.h>
-#include "imgui.h"
-#include "renut_engine/overlays/app_imgui.h"  // renut-ultimate (port 66)
-#include <chrono>
-#include <memory>
-#include <vector>
 #include <string>
+#include <vector>
+
+REXCVAR_DECLARE(bool, banjo_show_fps);
 
 inline double cpuMS;
 inline double gpuMS;
@@ -15,90 +18,116 @@ inline int flock;
 
 class FPSCounter {
 public:
-    std::string name;
-    void Tick();
-    int AverageCount = 100;
-    std::vector<float> frameTimes;
-    float averageFps = 0.0f;
-    float averageMs = 0.0f;
-    std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
+  std::string name;
+  void Tick();
+  int AverageCount = 100;
+  std::vector<float> frameTimes;
+  float averageFps = 0.0f;
+  float averageMs = 0.0f;
+  std::chrono::steady_clock::time_point lastTick =
+      std::chrono::steady_clock::now();
 };
 
 class FPSManager {
 public:
-    std::vector<std::unique_ptr<FPSCounter>> counters;
-    bool showFPS = true;
+  std::vector<std::unique_ptr<FPSCounter>> counters;
+  bool showFPS = true;
 
-    FPSCounter* GetCreateCounter(const std::string& name) {
-        for (auto& counter : counters) {
-            if (counter->name == name) return counter.get();
-        }
-        auto newCounter = std::make_unique<FPSCounter>();
-        newCounter->name = name;
-        FPSCounter* ptr = newCounter.get();
-        counters.push_back(std::move(newCounter));
-        return ptr;
+  FPSCounter *GetCreateCounter(const std::string &name) {
+    for (auto &counter : counters) {
+      if (counter->name == name)
+        return counter.get();
     }
+    auto newCounter = std::make_unique<FPSCounter>();
+    newCounter->name = name;
+    FPSCounter *ptr = newCounter.get();
+    counters.push_back(std::move(newCounter));
+    return ptr;
+  }
 };
 
 class FpsOverlayDialog : public rex::ui::ImGuiDialog {
 public:
-    explicit FpsOverlayDialog(rex::ui::ImGuiDrawer* drawer) : rex::ui::ImGuiDialog(drawer) {
-        rex::ui::RegisterBind("bind_fps_overlay", "F1", "Toggle FPS overlay", [this] {
-            if (fpsManager) fpsManager->showFPS = !fpsManager->showFPS;
-            });
+  explicit FpsOverlayDialog(rex::ui::ImGuiDrawer *drawer)
+      : rex::ui::ImGuiDialog(drawer) {
+    rex::ui::RegisterBind(
+        "bind_fps_overlay", "F1", "Toggle FPS overlay", [this] {
+          const bool next = !REXCVAR_GET(banjo_show_fps);
+          rex::cvar::SetFlagByName("banjo_show_fps", next ? "true" : "false");
+          if (fpsManager)
+            fpsManager->showFPS = next;
+        });
+  }
+
+  ~FpsOverlayDialog() { rex::ui::UnregisterBind("bind_fps_overlay"); }
+
+  FPSManager *fpsManager = nullptr;
+
+  // blur-nx (2026-11-18, #27): only while the counter shows.
+  bool WantsFrame() const override {
+    return fpsManager && REXCVAR_GET(banjo_show_fps);
+  }
+
+  void OnDraw(ImGuiIO &io) override {
+
+    // Limit draw to every 10 frames
+    if (flock > 120) {
+      flock = 0;
+    } else {
+      flock++;
     }
 
-    ~FpsOverlayDialog() {
-        rex::ui::UnregisterBind("bind_fps_overlay");
+    if (!fpsManager || !REXCVAR_GET(banjo_show_fps))
+      return;
+    if (!AppImGuiReady())
+      return; // renut-ultimate (port 66)
+
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDecoration;
+
+    ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::Begin("##FPSOverlay", nullptr, flags);
+    ImGui::SetWindowFontScale(std::max(1.0f, io.DisplaySize.y / 720.0f) * 1.4f);
+
+    for (auto &counter : fpsManager->counters) {
+      float fps = counter->averageFps;
+      ImVec4 color;
+      if (fps < 30.0f)
+        color = ImVec4(1.0f, 0.15f, 0.15f, 1.0f);
+      else if (fps < 60.0f)
+        color = ImVec4(1.0f, 0.9f, 0.0f, 1.0f);
+      else if (fps <= 70.0f)
+        color = ImVec4(0.2f, 1.0f, 0.2f, 1.0f);
+      else
+        color = ImVec4(0.2f, 0.6f, 1.0f, 1.0f);
+
+      // Port 196 (S4ep1-nx's): "Shown" counts new images on the display; cpu
+      // and gpu only where a game hook sets them.
+      ImGui::TextColored(color, "%.0f FPS", fps);
+      if (cpuMS > 0.0)
+        ImGui::TextColored(color, "cpu: %.1fms", cpuMS);
+      if (gpuMS > 0.0)
+        ImGui::TextColored(color, "gpu: %.1fms", gpuMS);
     }
 
-    FPSManager* fpsManager = nullptr;
-
-    // blur-nx (2026-11-18, #27): only while the counter shows.
-    bool WantsFrame() const override { return fpsManager && fpsManager->showFPS; }
-
-    void OnDraw(ImGuiIO& io) override {
-
-        //Limit draw to every 10 frames
-        if(flock > 120){ flock = 0;}
-        else{ flock++; }
-
-        if (!fpsManager || !fpsManager->showFPS) return;
-        if (!AppImGuiReady()) return;  // renut-ultimate (port 66)
-
-        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDecoration;
-
-        ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.55f);
-        ImGui::Begin("##FPSOverlay", nullptr, flags);
-
-        for (auto& counter : fpsManager->counters) {
-            float fps = counter->averageFps;
-            ImVec4 color;
-            if (fps < 30.0f) color = ImVec4(1.0f, 0.15f, 0.15f, 1.0f);
-            else if (fps < 60.0f) color = ImVec4(1.0f, 0.9f, 0.0f, 1.0f);
-            else if (fps <= 70.0f) color = ImVec4(0.2f, 1.0f, 0.2f, 1.0f);
-            else color = ImVec4(0.2f, 0.6f, 1.0f, 1.0f);
-
-            // Port 196 (S4ep1-nx's): "Shown" counts new images on the display; cpu and gpu only where a game hook
-            // sets them.
-            ImGui::TextColored(color, "%.0f FPS", fps);
-            if (cpuMS > 0.0) ImGui::TextColored(color,"cpu: %.1fms", cpuMS);
-            if (gpuMS > 0.0) ImGui::TextColored(color,"gpu: %.1fms", gpuMS);
-        }
-
-        float hostFps = static_cast<float>(rex::cvar::Query<double>("present_host_fps"));
-        if (hostFps > 0.5f) {
-            ImGui::TextColored(ImVec4(0.65f, 0.4f, 1.0f, 1.0f), "%.0f FPS (host)", hostFps);
-        }
-
-        float generatedFps = static_cast<float>(rex::cvar::Query<double>("present_fsr3_generated_fps"));
-        if (generatedFps > 0.5f) {
-            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.85f, 1.0f), "%.0f FPS (generated)",
-                               generatedFps);
-        }
-
-        ImGui::End();
+    float hostFps =
+        static_cast<float>(rex::cvar::Query<double>("present_host_fps"));
+    if (hostFps > 0.5f) {
+      ImGui::TextColored(ImVec4(0.65f, 0.4f, 1.0f, 1.0f), "%.0f FPS (host)",
+                         hostFps);
     }
+
+    float generatedFps = static_cast<float>(
+        rex::cvar::Query<double>("present_fsr3_generated_fps"));
+    if (generatedFps > 0.5f) {
+      ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.85f, 1.0f),
+                         "%.0f FPS (generated)", generatedFps);
+    }
+
+    ImGui::End();
+  }
 };

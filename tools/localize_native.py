@@ -76,7 +76,7 @@ def gen_file(gen, suffix):
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, 'app')
-GEN = os.path.join(APP, 'generated')
+GEN = os.path.join(APP, 'generated', 'default') if os.path.isdir(os.path.join(APP, 'generated', 'default')) else os.path.join(APP, 'generated')
 OUT = os.path.join(GEN, 'hot')
 IMAGE = os.path.join(ROOT, 'out', 'renut_image.bin')
 INDEX = os.path.join(ROOT, 'out', 'localize_index.json')
@@ -762,7 +762,9 @@ class Hooks:
         # Only this list changed: tools/direct_calls.py (SOURCES) and tools/post_codegen.py (HOOK_TOMLS, for
         # flush_mode_flow.py) still read the file, as before port 74. (Neither Katamari nor rr6-nx has one.)
         tomls = [os.path.join(APP, 'config', 'renut_hooks.toml'),
-                 os.path.join(APP, 'renut_config.toml'), os.path.join(APP, 'renut_manifest.toml')]
+                 os.path.join(APP, 'renut_config.toml'),
+                 os.path.join(APP, 'asurawrath_manifest.toml'),
+                 os.path.join(APP, 'renut_manifest.toml')]
         paths = [(p, True) for p in tomls if os.path.isfile(p)]
         for root in roots:
             for d, _, fs in os.walk(root):
@@ -777,6 +779,8 @@ class Hooks:
             except OSError:
                 continue
             text = strip_comments(text, toml)
+            if os.path.basename(path) == 'renut_config.toml':
+                text = re.sub(r'non_argument_as_local_keep\s*=\s*\[.*?\]', ' ', text, flags=re.S)
             if not toml:
                 text = strip_windows_only(text)  # blur-nx (2026-11-13, M-28)
             text = re.sub(r'__imp__\w+', ' ', text)
@@ -1732,6 +1736,7 @@ def survey(index, hooks, reach, names):
 
 
 def main():
+    global GEN
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('names', nargs='*')
     ap.add_argument('--gen', default=GEN)
@@ -1741,6 +1746,10 @@ def main():
     ap.add_argument('--survey', action='store_true', help='only say what a copy of each name would contain')
     ap.add_argument('--what', default='')
     a = ap.parse_args()
+    if os.path.abspath(a.gen) != os.path.abspath(GEN):
+        GEN = a.gen
+        if '--out' not in sys.argv:
+            a.out = os.path.join(a.gen, 'hot')
     entries = list_entries(a.list or LIST)
     index = Index(a.gen)
     hand = hand_entries()

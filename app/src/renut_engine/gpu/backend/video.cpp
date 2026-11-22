@@ -60,6 +60,9 @@
 #include "host_shaders/texture_mip_ps.spirv.h"
 #include "host_shaders/resolve_copy_ps.spirv.h"
 #include "host_shaders/view_fp10_encode_ps.spirv.h"  // halo3-nx
+#include "host_shaders/view_fp10_encode_1x_ps.spirv.h"
+#include "host_shaders/view_fp10_decode_ps.spirv.h"
+#include "host_shaders/view_fp10_decode_m0_ps.spirv.h"
 #include "host_shaders/sample_grid_resolve_ps.spirv.h"  // blur-nx (port 76)
 #include "host_shaders/edram_inherit_ps.spirv.h"  // blur-nx (port 76)
 #include "host_shaders/edram_inherit_src_ms_ps.spirv.h"  // blur-nx (port 76)
@@ -81,6 +84,9 @@
 #include "host_shaders/texture_mip_ps.deko3d.h"
 #include "host_shaders/resolve_copy_ps.deko3d.h"
 #include "host_shaders/view_fp10_encode_ps.deko3d.h"  // halo3-nx
+#include "host_shaders/view_fp10_encode_1x_ps.deko3d.h"
+#include "host_shaders/view_fp10_decode_ps.deko3d.h"
+#include "host_shaders/view_fp10_decode_m0_ps.deko3d.h"
 #include "host_shaders/sample_grid_resolve_ps.deko3d.h"  // blur-nx (port 76)
 #include "host_shaders/edram_inherit_ps.deko3d.h"  // blur-nx (port 76)
 #include "host_shaders/edram_inherit_src_ms_ps.deko3d.h"  // blur-nx (port 76)
@@ -103,6 +109,9 @@
 #include "host_shaders/texture_mip_ps.dxil.h"
 #include "host_shaders/resolve_copy_ps.dxil.h"
 #include "host_shaders/view_fp10_encode_ps.dxil.h"  // halo3-nx
+#include "host_shaders/view_fp10_encode_1x_ps.dxil.h"
+#include "host_shaders/view_fp10_decode_ps.dxil.h"
+#include "host_shaders/view_fp10_decode_m0_ps.dxil.h"
 #include "host_shaders/sample_grid_resolve_ps.dxil.h"  // blur-nx (port 76)
 #include "host_shaders/edram_inherit_ps.dxil.h"  // blur-nx (port 76)
 #include "host_shaders/edram_inherit_src_ms_ps.dxil.h"  // blur-nx (port 76)
@@ -246,6 +255,17 @@ bool BuildNullTexture(VideoState &s) {
                             s.null_texture_cube_view.get());
   s.texture_slot_used[kNullTexture3DSlot] = true;
   s.texture_slot_used[kNullTextureCubeSlot] = true;
+  s.white_texture = s.device->createTexture(plume::RenderTextureDesc::Texture2D(1, 1, 1, kFormat));
+  if (s.white_texture) {
+    s.white_texture->setName("asura white texture");
+    s.white_texture_view =
+        s.white_texture->createTextureView(plume::RenderTextureViewDesc::Texture2D(kFormat));
+  }
+  if (!s.white_texture_view)
+    return false;
+  s.texture_set->setTexture(kWhiteTextureSlot, s.white_texture.get(),
+                            plume::RenderTextureLayout::SHADER_READ, s.white_texture_view.get());
+  s.texture_slot_used[kWhiteTextureSlot] = true;
   // banjo-nx (2026-10-17): banjo_renut_diag_poison_slots, a test of the eviction rules.
   if (banjo::renut_gpu::PoisonSlotsOn()) {
     s.poison_texture = s.device->createTexture(plume::RenderTextureDesc::Texture2D(1, 1, 1, kFormat));
@@ -266,6 +286,8 @@ bool InitializeNullTextures(VideoState &s) {
   if (!zero)
     return false;
   std::memset(zero.cpu, 0, 256);
+  // Xbox 360 D3D unbound texture reads opaque black (0, 0, 0, 1); alpha 0 kills UE3 shadow frustum stencil alpha-test.
+  static_cast<uint8_t *>(zero.cpu)[3] = 0xFF;
   plume::RenderCommandList *cmd = s.command_list;
   plume::RenderTexture *textures[] = {s.null_texture.get(), s.null_texture_3d.get(),
                                       s.null_texture_cube.get()};
@@ -281,6 +303,22 @@ bool InitializeNullTextures(VideoState &s) {
     }
     cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
                   plume::RenderTextureBarrier(textures[t], plume::RenderTextureLayout::SHADER_READ));
+  }
+  if (s.white_texture) {
+    UploadAllocation white = s.uploads[s.frame].Allocate(256, 512);
+    if (!white)
+      return false;
+    const uint8_t texel[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    std::memset(white.cpu, 0, 256);
+    std::memcpy(white.cpu, texel, sizeof(texel));
+    cmd->barriers(plume::RenderBarrierStage::COPY,
+                  plume::RenderTextureBarrier(s.white_texture.get(), plume::RenderTextureLayout::COPY_DEST));
+    cmd->copyTextureRegion(plume::RenderTextureCopyLocation::Subresource(s.white_texture.get(), 0, 0),
+                           plume::RenderTextureCopyLocation::PlacedFootprint(
+                               white.ref.ref, plume::RenderFormat::R8G8B8A8_UNORM, 1, 1, 1, 64,
+                               white.ref.offset));
+    cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
+                  plume::RenderTextureBarrier(s.white_texture.get(), plume::RenderTextureLayout::SHADER_READ));
   }
   // banjo-nx: the poison texture's one texel, magenta and opaque.
   if (s.poison_texture) {
@@ -342,6 +380,11 @@ bool BuildDepthResolvePipelines(VideoState &s) {
   s.resolve_copy_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(resolve_copy_ps), "resolve_copy_ps");
   // halo3-nx (2026-11-03): one EDRAM view read through another (SyncColorViewLocked).
   s.view_fp10_encode_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(view_fp10_encode_ps), "view_fp10_encode_ps");
+  s.view_fp10_encode_1x_ps =
+      CreateHostShader(s.device.get(), RENUT_HOST_SHADER(view_fp10_encode_1x_ps), "view_fp10_encode_1x_ps");
+  s.view_fp10_decode_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(view_fp10_decode_ps), "view_fp10_decode_ps");
+  s.view_fp10_decode_m0_ps =
+      CreateHostShader(s.device.get(), RENUT_HOST_SHADER(view_fp10_decode_m0_ps), "view_fp10_decode_m0_ps");
   // blur-nx (2026-11-10, port 76; its key 216: blur_renut_sample_grid_resolve): a multisampled view resolved from its
   // sample grid's 1x target. Optional: without it the view's own target is resolved.
   s.sample_grid_resolve_ps =

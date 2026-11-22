@@ -757,6 +757,16 @@ u32 CreateShaderRecord(const be_u32 *function, bool pixel) {
   if (keep_container)
     shader->container.assign(container, container + u32(header->virtualSize) + u32(header->physicalSize));
   shader->entry = FindShaderEntry(shader->hash);
+  if (!shader->entry && pixel) {
+    shader->entry = FindPixelShaderByPhysicalHash(container);
+    if (shader->entry) {
+      shader->hash = shader->entry->hash;
+      static uint32_t logged = 0;
+      if (logged++ < 16)
+        RGPU_INFO("[renut] Pixel shader matched precompiled {:016X} by identical physical section",
+                  shader->entry->hash);
+    }
+  }
   shader->fetch_3d_mask = Fetch3DMask(container);  // kameo-nx (2026-11-03)
   shader->export_only = !pixel && ContainerIsExportOnly(container);  // vivapinata-nx (2026-11-03)
   shader->fetch_filters = ScanFetchFilters(container);  // port 145 (tw2de_nx's, 2026-10-31)
@@ -792,11 +802,21 @@ void RegisterGuestShader(u32 shader_va, u32 physical_va, bool pixel) {
   std::vector<uint8_t> container(size_t(virtual_size) + physical_size);
   std::memcpy(container.data(), header, virtual_size);
   std::memcpy(container.data() + virtual_size, physical, physical_size);
-  const uint64_t hash = HashShaderContainer(container.data());
+  uint64_t hash = HashShaderContainer(container.data());
   const RecordKind kind = pixel ? RecordKind::PixelShader : RecordKind::VertexShader;
   const bool export_only = !pixel && ContainerIsExportOnly(container.data());  // vivapinata-nx (2026-11-03)
   // Captured here, where its container is at hand, only when the cache lacks it.
-  const ShaderCacheEntry *const sort_entry = FindShaderEntry(hash);
+  const ShaderCacheEntry *sort_entry = FindShaderEntry(hash);
+  if (!sort_entry && pixel) {
+    sort_entry = FindPixelShaderByPhysicalHash(container.data());
+    if (sort_entry) {
+      hash = sort_entry->hash;
+      static uint32_t logged = 0;
+      if (logged++ < 16)
+        RGPU_INFO("[renut] Pixel shader matched precompiled {:016X} by identical physical section",
+                  sort_entry->hash);
+    }
+  }
   if (!sort_entry)
     CaptureMissingShader(container.data(), pixel, hash);
   NoteShaderSortKey(shader_va, hash, ShaderSortableByHash(hash, sort_entry, pixel));  // banjo-nx (2026-10-27)
@@ -925,6 +945,8 @@ void D3DVertexShader_Bind_hook(u32 shader_va, u32 declaration_va, mapped_u32 str
   const auto *declaration =
       FindRecord<VertexDeclarationRecord>(declaration_va, RecordKind::VertexDeclaration);
   if (!declaration)
+    declaration = AsuraDeclarationRecord(declaration_va);
+  if (!declaration)
     return;
   u32 strides[d3d::kMaxStreams] = {};
   if (stream_strides) {
@@ -1012,11 +1034,46 @@ void D3DVertexShader_Bind_hook(u32 shader_va, u32 declaration_va, mapped_u32 str
   }
 }
 
+void Asura_D3DVertexShader_Bind_hook(u32 shader_va, u32 declaration_va, mapped_u32 stream_strides, u32 /*ps_va*/) {
+  D3DVertexShader_Bind_hook(shader_va, declaration_va, stream_strides);
+}
+
+std::mutex g_asura_decl_mutex;
+std::unordered_map<u32, u32> g_asura_decls;
+
 } // namespace
 
-BANJO_RENUT_HOOK(sub_824D6120, D3DDevice_CreateVertexShader_hook);  // D3DDevice_CreateVertexShader  // katamari-nx: N&B sub_826377C0, signature 0.85 (next 0.55)
-BANJO_RENUT_HOOK(sub_824D6010, D3DDevice_CreatePixelShader_hook);  // D3DDevice_CreatePixelShader  // katamari-nx: N&B sub_826375D8, D3DDevice_CreatePixelShader: CreateVertexShader takes sub_824D6120 (0.85); this one's next best, 0.66
-BANJO_RENUT_HOOK(sub_824D4C50, D3DDevice_CreateVertexDeclaration_hook);  // D3DDevice_CreateVertexDeclaration  // katamari-nx: N&B sub_826379A0, signature 0.77 (next 0.47)
-BANJO_RENUT_UNHOOKED_HOOK(sub_8263FBD0, D3DVertexShader_Bind_hook);  // D3DVertexShader_Bind  // katamari-nx: not hooked (D3DVertexShader_Bind: no clear counterpart (sig 0.35/0.28))
-BANJO_RENUT_HOOK(sub_824D4838, XGRegisterVertexShader_hook);  // XGRegisterVertexShader  // katamari-nx: N&B sub_826376C8, signature 0.91 (next 0.32)
-BANJO_RENUT_UNHOOKED_HOOK(sub_826375A0, XGRegisterPixelShader_hook);  // XGRegisterPixelShader  // katamari-nx: not hooked (XGRegisterPixelShader: no counterpart (sig 0.26))
+namespace renut::gpu {
+const VertexDeclarationRecord *AsuraDeclarationRecord(u32 guest_decl) {
+  u32 rec = 0;
+  {
+    std::lock_guard lock(g_asura_decl_mutex);
+    auto it = g_asura_decls.find(guest_decl);
+    if (it != g_asura_decls.end())
+      rec = it->second;
+  }
+  return rec ? FindRecord<VertexDeclarationRecord>(rec, RecordKind::VertexDeclaration) : nullptr;
+}
+}  // namespace renut::gpu
+
+// Asura's Wrath XGSetVertexDeclarationHeader (sub_8299EA18): (r3 = pVertexElements, r4 = pDeclaration)
+BANJO_RENUT_HOOK_RAW(sub_8299EA18) {
+  const u32 elements = ctx.r3.u32, decl = ctx.r4.u32;
+  __imp__sub_8299EA18(ctx, base);
+  auto *el = GuestPtr<GuestVertexElement>(elements);
+  if (!el || !decl)
+    return;
+  const u32 rec = D3DDevice_CreateVertexDeclaration_hook(rex::MappedPtr<GuestVertexElement>(el, elements));
+  if (rec) {
+    std::lock_guard lock(g_asura_decl_mutex);
+    g_asura_decls[decl] = rec;
+  }
+}
+
+BANJO_RENUT_UNHOOKED_HOOK(sub_824D6120, D3DDevice_CreateVertexShader_hook);
+BANJO_RENUT_UNHOOKED_HOOK(sub_824D6010, D3DDevice_CreatePixelShader_hook);
+BANJO_RENUT_UNHOOKED_HOOK(sub_824D4C50, D3DDevice_CreateVertexDeclaration_hook);
+BANJO_RENUT_HOOK(sub_8299DE78, Asura_D3DVertexShader_Bind_hook);  // D3DVertexShader_Bind (4-arg LTCG)
+BANJO_RENUT_UNHOOKED_HOOK(sub_8263FBD0, D3DVertexShader_Bind_hook);
+BANJO_RENUT_HOOK(sub_8299E750, XGRegisterVertexShader_hook);  // XGRegisterVertexShader
+BANJO_RENUT_HOOK(sub_8299E558, XGRegisterPixelShader_hook);  // XGRegisterPixelShader

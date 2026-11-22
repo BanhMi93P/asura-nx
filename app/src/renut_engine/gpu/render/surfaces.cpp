@@ -148,9 +148,11 @@ uint64_t TargetKey(const d3d::SurfaceDesc &desc, bool depth, plume::RenderFormat
                    RenderScale scale) {
   const u32 info = desc.SurfaceInfo;
   const uint64_t msaa = ((info >> 16) & 3) == 0 ? 0 : g_msaa_latched >= 4 ? 2 : g_msaa_latched >= 2 ? 1 : 0;
+  const uint64_t edram_fmt = depth ? 0ull : uint64_t((u32(desc.ColorInfo) >> 16) & 0xFu);
   return uint64_t(u32(desc.ColorInfo) & 0xFFF) | uint64_t(info & 0x3FFF) << 12 |
          uint64_t((info >> 16) & 3) << 26 | uint64_t(depth) << 28 |
-         uint64_t(scale.code & 7) << 29 | uint64_t(u32(format) & 0xFFFFFF) << 32 | msaa << 56;
+         uint64_t(scale.code & 7) << 29 | uint64_t(u32(format) & 0xFFFFFF) << 32 |
+         msaa << 56 | (edram_fmt << 58);
 }
 
 std::unordered_map<uint64_t, std::unique_ptr<HostSurface>> g_targets;
@@ -401,6 +403,8 @@ bool BuildTarget(HostSurface &surface, const d3d::SurfaceDesc &desc, uint32_t mi
 RenderScale CodeForHeightLocked(int32_t height) {
   if (height == 720)
     return RenderScale{};
+  if (height == 480)
+    return RenderScale{1};
   if (height == 1080)
     return RenderScale{2};
   constexpr uint32_t kCodes[2] = {RenderScale::kHandheldCode, RenderScale::kDockedCode};
@@ -596,6 +600,8 @@ void LatchResolutionScaleLocked() {
       bool dynamic[2];  // banjo-nx (2026-10-28): banjo_renut_dynamic_resolution's range for [handheld, docked]
     } heights = [] {
       auto pick = [](int32_t want, const char *name) {
+        if (want == 480)
+          return 480;
         const int32_t h = std::clamp((std::clamp(want, 360, 1080) + 4) / 9 * 9, 360, 1080);
         if (h != want)
           RGPU_INFO("banjo_renut_render_height_{} = {}: {} (a multiple of 9 from 360 to 1080)", name, want, h);
@@ -689,13 +695,18 @@ void LatchResolutionScaleLocked() {
 #if defined(PLUME_DEKO3D)
     // blur-nx (2026-11-18, the game menu: the resolutions at once): the configured heights read at every latch, rounded
     // as at start; CodeForHeightLocked gives a new one a code (the dynamic resolution's way), its targets made anew.
-    auto rounded = [](int32_t want) { return std::clamp((std::clamp(want, 360, 1080) + 4) / 9 * 9, 360, 1080); };
+    auto rounded = [](int32_t want) {
+      if (want == 480)
+        return 480;
+      return std::clamp((std::clamp(want, 360, 1080) + 4) / 9 * 9, 360, 1080);
+    };
     const int32_t configured = docked ? rounded(banjo::renut_gpu::RenderHeightDocked())
                                       : rounded(banjo::renut_gpu::RenderHeightHandheld());
 #else
     const int32_t configured = docked ? heights.docked : heights.handheld;
 #endif
-    const int32_t chosen = count ? g_dynamic_steps[mode][std::clamp(g_dynamic_step.load(), 0, count - 1)] : configured;
+    const int32_t chosen =
+        count ? g_dynamic_steps[mode][std::clamp(g_dynamic_step.load(), 0, count - 1)] : configured;
 #if defined(PLUME_DEKO3D)
     render_scale = CodeForHeightLocked(chosen);  // banjo-nx (2026-10-28, night_gpu5): the steps take turns on codes 4 and 6
 #else
@@ -704,10 +715,11 @@ void LatchResolutionScaleLocked() {
                                     : RenderScale{docked ? RenderScale::kDockedCode : RenderScale::kHandheldCode};
 #endif
     (void)render;
+    static const bool has_composite_ps = !banjo::renut_gpu::SmaaAfterPsList().empty();
     g_frames_without_composite = g_composite_seen ? 0 : std::min(g_frames_without_composite + 1, kMenuFrames);
     g_composite_seen = false;
     ui = display_scale;
-    scale = g_frames_without_composite < kMenuFrames ? render_scale : display_scale;
+    scale = (!has_composite_ps || g_frames_without_composite < kMenuFrames) ? render_scale : display_scale;
 #if defined(PLUME_DEKO3D)
     // The swapchain at the display's size (from sa2-nx 1.0.3.1): the present scales the frame to it.
     static int32_t last_display = 0;
@@ -1091,6 +1103,34 @@ void ColorAliasesLocked(const HostSurface *surface, std::vector<HostSurface *> &
   }
 }
 
+void DepthColorAliasesLocked(const HostSurface *depth, std::vector<HostSurface *> &out) {
+  out.clear();
+  if (!depth || !depth->depth)
+    return;
+  uint64_t own = 0;
+  bool found = false;
+  for (const auto &[key, target] : g_targets) {
+    if (target.get() == depth) {
+      own = key;
+      found = true;
+      break;
+    }
+  }
+  if (!found)
+    return;
+  constexpr uint64_t kBaseAndPitch = 0x3FFFFFFull;
+  for (const auto &[key, target] : g_targets) {
+    HostSurface *c = target.get();
+    if (!c || c->depth || !c->texture || (key & kBaseAndPitch) != (own & kBaseAndPitch) ||
+        ((key >> 26) & 3) != ((own >> 26) & 3) || c->samples != depth->samples ||
+        c->scale != depth->scale)
+      continue;
+    const u32 cf = (u32(c->color_info_word) >> 16) & 0xF;
+    if (cf == 0 || cf == 1 || cf == 2 || cf == 3 || cf == 10 || cf == 12)
+      out.push_back(c);
+  }
+}
+
 // blur-nx (2026-11-10, port 76; its keys 218 and 220): the EDRAM tiles of a colour target, exactly. A tile is 80x16 samples
 // of 32 bits (40x16 of the 64-bit formats: 16_16_16_16, 16_16_16_16_FLOAT, 32_32_FLOAT); a pixel's samples are 2x2 at 4x
 // and 1x2 at 2x (the SDK's EDRAM layout); a surface's tiles run row by row from its base tile, 'columns' a row (its
@@ -1424,6 +1464,8 @@ HostSurface *GetHostSurfaceLocked(u32 surface_va) {
     m.surface->info_word = desc->SurfaceInfo;
     m.surface->format_word = desc->Format;
     m.surface->color_info_word = desc->ColorInfo;  // halo3-nx
+    m.surface->sasrt_fixed16 = !m.surface->depth && (((u32(desc->ColorInfo) >> 16) & 0xFu) == 4u ||
+                                                     ((u32(desc->ColorInfo) >> 16) & 0xFu) == 5u);
     m.surface->sasrt_used_frame = g_sasrt_frames;  // sasrt-nx (2026-11-09, sasrt_retire_idle_targets_frames; port 58)
     // banjo-nx (2026-10-21, internal resolution): the composite's target after the composite: its UI target.
     if (g_ui.redirect && m.surface == g_ui.scene)
@@ -1605,6 +1647,8 @@ HostSurface *GetHostSurfaceSlow(u32 surface_va, const d3d::SurfaceDesc *desc) {
     slot->info_word = desc->SurfaceInfo;
     slot->format_word = desc->Format;
     slot->color_info_word = desc->ColorInfo;  // halo3-nx
+    slot->sasrt_fixed16 = !slot->depth && (((u32(desc->ColorInfo) >> 16) & 0xFu) == 4u ||
+                                           ((u32(desc->ColorInfo) >> 16) & 0xFu) == 5u);
     if (slot->width >= min_width && slot->height >= min_height && slot->scale == scale)
       return slot.get();
     // A larger surface over the view, or a larger tiling: grow it, keeping

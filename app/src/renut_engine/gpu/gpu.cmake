@@ -292,6 +292,9 @@ function(renut_gpu_setup TARGET)
     renut_host_shader(${TARGET} texture_mip_ps ps_6_0)
     renut_host_shader(${TARGET} resolve_copy_ps ps_6_0)  # banjo-nx (2026-10-18)
     renut_host_shader(${TARGET} view_fp10_encode_ps ps_6_0)  # halo3-nx (2026-11-03)
+    renut_host_shader(${TARGET} view_fp10_encode_1x_ps ps_6_0)
+    renut_host_shader(${TARGET} view_fp10_decode_ps ps_6_0)  # asura-nx: 32bpp <-> 7e3 / 8888 <-> 2101010 EDRAM views
+    renut_host_shader(${TARGET} view_fp10_decode_m0_ps ps_6_0)
     # blur-nx (2026-11-10/11, port 76; its keys 216 and 220): a multisampled view resolved from the 1x target of its
     # sample grid; one EDRAM view written into another (edram_inherit.hlsli, four sample forms).
     renut_host_shader(${TARGET} sample_grid_resolve_ps ps_6_0)

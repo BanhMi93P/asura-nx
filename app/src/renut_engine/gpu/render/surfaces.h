@@ -255,6 +255,9 @@ void SweepUnusedTargetsLocked();
 // memory, so what a clear writes through one is what the others then hold.
 void ColorAliasesLocked(const HostSurface *surface, std::vector<HostSurface *> &out);
 
+// Overlapping 32bpp/7e3 colour targets at the same EDRAM base, pitch, sample count and scale as depth target 'depth'.
+void DepthColorAliasesLocked(const HostSurface *depth, std::vector<HostSurface *> &out);
+
 // vivapinata-nx (2026-11-04, the white fog at the cuts): the other color targets at the same EDRAM base in another layout (samples,
 // pitch) whose every tile a clear of 'rect' (guest pixels) of 'surface' covers. On the console that memory then holds the clear.
 // blur-nx (2026-11-10, port 76; its key 218: blur_renut_wipe_overwritten, on): exactly, by tile spans: a target whose every

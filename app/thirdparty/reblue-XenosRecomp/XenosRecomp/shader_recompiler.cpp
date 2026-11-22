@@ -1582,7 +1582,7 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
 
         case AluScalarOpcode::Logc:
         case AluScalarOpcode::Log:
-            print("clamp(log2({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            print("clamp(log2(abs({})), FLT_MIN, FLT_MAX)", op(SCALAR_0));
             break;
 
     #ifdef RENUT_RECOMP
@@ -1608,7 +1608,7 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
         case AluScalarOpcode::Rsqf:
     #endif
         case AluScalarOpcode::Rsq:
-            print("clamp(rsqrt({}), FLT_MIN, FLT_MAX)", op(SCALAR_0));
+            print("clamp(rsqrt(abs({})), FLT_MIN, FLT_MAX)", op(SCALAR_0));
             break;
 
         case AluScalarOpcode::Subs:

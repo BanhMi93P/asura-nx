@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <string>
 
 #include <rex/cvar.h>
@@ -28,8 +29,11 @@
 #include <rex/hook.h>
 #include <rex/types.h>
 #include <rex/runtime.h>
+#include <rex/thread.h>
 #include <rex/system/export_resolver.h>
+#include <rex/system/function_dispatcher.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/xthread.h>
 #include <rex/system/xtypes.h>
 #include <rex/ui/flags.h>
 
@@ -312,17 +316,50 @@ u32 VdEnableDisableClockGating_entry(u32 enabled) {
   return 0;
 }
 
+static std::atomic<uint32_t> g_vblank_callback{0};
+static std::atomic<uint32_t> g_vblank_user_data{0};
+static std::atomic<bool> g_vblank_running{false};
+static object_ref<XHostThread> g_vblank_thread;
+static std::atomic<uint32_t> g_vd_writeback_ptr{0};
+
 void VdSetGraphicsInterruptCallback_entry(u32 callback, mapped_void user_data) {
   // callback takes 2 params
   // r3 = bool 0/1 - 0 is normal interrupt, 1 is some acquire/lock mumble
   // r4 = user_data (r4 of VdSetGraphicsInterruptCallback)
-  auto* graphics_system = REX_KERNEL_STATE()->emulator()->graphics_system();
-  if (!graphics_system) {
-    static std::atomic<bool> warned{false};
-    WarnNoGpuEmulation("VdSetGraphicsInterruptCallback", warned);
+  auto* ks = REX_KERNEL_STATE();
+  auto* graphics_system = ks->emulator()->graphics_system();
+  if (graphics_system) {
+    graphics_system->SetInterruptCallback(callback, user_data.guest_address());
     return;
   }
-  graphics_system->SetInterruptCallback(callback, user_data.guest_address());
+
+  g_vblank_callback.store(callback, std::memory_order_release);
+  g_vblank_user_data.store(user_data.guest_address(), std::memory_order_release);
+  REXKRNL_INFO("VdSetGraphicsInterruptCallback fallback: callback={:08X}, user_data={:08X}",
+               callback, user_data.guest_address());
+
+  if (!g_vblank_running.exchange(true)) {
+    g_vblank_thread = object_ref<XHostThread>(
+        new XHostThread(ks, 128 * 1024, 0, [ks]() {
+          auto* thread = XThread::GetCurrentThread();
+          assert_not_null(thread);
+          thread->set_name("GPU VSync Fallback");
+          thread->SetActiveCpu(2);
+
+          while (g_vblank_running.load(std::memory_order_acquire)) {
+            uint32_t cb = g_vblank_callback.load(std::memory_order_acquire);
+            uint32_t ud = g_vblank_user_data.load(std::memory_order_acquire);
+            if (cb) {
+              uint64_t args[] = {0, ud};
+              ks->function_dispatcher()->ExecuteInterrupt(
+                  thread->thread_state(), cb, args, 2);
+            }
+            rex::thread::Sleep(std::chrono::microseconds(16666));
+          }
+          return 0;
+        }));
+    g_vblank_thread->Create();
+  }
 }
 
 void VdInitializeRingBuffer_entry(mapped_void ptr, i32 size_log2) {
@@ -341,12 +378,13 @@ void VdInitializeRingBuffer_entry(mapped_void ptr, i32 size_log2) {
 void VdEnableRingBufferRPtrWriteBack_entry(mapped_void ptr, i32 block_size_log2) {
   // r4 = log2(block size), 6, usually --- <=19
   auto* graphics_system = REX_KERNEL_STATE()->emulator()->graphics_system();
-  if (!graphics_system) {
-    static std::atomic<bool> warned{false};
-    WarnNoGpuEmulation("VdEnableRingBufferRPtrWriteBack", warned);
+  if (graphics_system) {
+    graphics_system->EnableReadPointerWriteBack(ptr.guest_address(), block_size_log2);
     return;
   }
-  graphics_system->EnableReadPointerWriteBack(ptr.guest_address(), block_size_log2);
+  g_vd_writeback_ptr.store(ptr.guest_address(), std::memory_order_release);
+  REXKRNL_INFO("VdEnableRingBufferRPtrWriteBack fallback: ptr={:08X}, block_size_log2={}",
+               ptr.guest_address(), block_size_log2);
 }
 
 void VdGetSystemCommandBuffer_entry(mapped_void p0_ptr, mapped_void p1_ptr) {

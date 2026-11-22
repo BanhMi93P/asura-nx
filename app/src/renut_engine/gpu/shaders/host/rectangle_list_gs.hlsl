@@ -89,13 +89,11 @@ void main(triangle Vertex input[3], inout TriangleStream<Vertex> output)
 
     // Starting the strip from the right angle, in the given cyclic order,
     // keeps the winding of the three given vertices for both triangles.
-    // Port 164 (from fnxf_xiii, its note of 2026-10-27): each corner by a constant index, one branch per right angle.
-    // input[corner] with a run-time index made SPIRV-Cross copy the three vertices into a local array of structs
-    // (fnxf_xiii: 52 KB of scratch a warp and 255 registers in uam's GS). The same vertices in the same order.
-    if (corner == 0)
-        EmitRectangle(input[0], input[1], input[2], output);
-    else if (corner == 1)
-        EmitRectangle(input[1], input[2], input[0], output);
-    else
-        EmitRectangle(input[2], input[0], input[1], output);
+    const Vertex c = input[corner];
+    const Vertex a = input[(corner + 1) % 3];
+    const Vertex b = input[(corner + 2) % 3];
+    output.Append(c);
+    output.Append(a);
+    output.Append(b);
+    output.Append(Opposite(a, b, c));
 }

@@ -32,7 +32,8 @@ GEN = os.path.join(APP, 'generated')
 SDK = os.environ.get('REXSDK_DIR') or os.path.join(ROOT, 'sdk')
 SOURCES = [os.path.join(APP, 'src'), os.path.join(SDK, 'src'), os.path.join(SDK, 'include'),
            os.path.join(APP, 'config', 'renut_hooks.toml'),
-           os.path.join(APP, 'config', 'renut_gpu_funcs.toml'), os.path.join(APP, 'renut_config.toml'), os.path.join(APP, 'renut_manifest.toml'),
+           os.path.join(APP, 'config', 'renut_gpu_funcs.toml'), os.path.join(APP, 'renut_config.toml'),
+           os.path.join(APP, 'asurawrath_manifest.toml'), os.path.join(APP, 'renut_manifest.toml'),
            os.path.join(APP, 'CMakeLists.txt')]
 
 

@@ -221,6 +221,11 @@ namespace plume {
         memset(ssboBoundStages, 0, sizeof(ssboBoundStages));
         graphicsBuffersDirty = true;
         boundVtxValid = 0;  // banjo-nx (2026-10-26)
+        boundVtxAttribCount = 0;
+        boundVtxAttribValid = false;
+        boundVtxBufStateCount = 0;
+        boundVtxBufStateValid = false;
+        drawVtxStrideMask = 0;
         framebuffer = nullptr;
         depthDirty = false;  // sasrt-nx (2026-10-21)
         viewportCount = scissorCount = 0;
@@ -1072,8 +1077,8 @@ namespace plume {
             // buffers after the last one, so a pipeline without vertex input leaves no earlier attribute fetching from
             // a buffer that may be gone. (banjo-nx: with the same attributes and buffers as bound, nothing to do.)
             if (!Deko3DGetOptions().vsInputMask && changed(8)) {
-                dkCmdBufBindVtxAttribState(cmd, p->attribs, p->attribCount);
-                dkCmdBufBindVtxBufferState(cmd, p->vtxBuffers, p->vtxBufferCount);
+                bindVtxAttribStateChecked(p->attribs, p->attribCount);
+                bindVtxBufferStateChecked(p->vtxBuffers, p->vtxBufferCount);
             }
             boundStateHash = p->stateHash;
         }
@@ -1081,6 +1086,37 @@ namespace plume {
         // out): the same pipeline can be bound with another variant of its vertex shader, which reads other attributes.
         if (Deko3DGetOptions().vsInputMask)
             bindVertexInput(p, want[0]);
+        else if (drawVtxStrideMask)
+            bindVtxBufferStateChecked(p->vtxBuffers, p->vtxBufferCount);
+    }
+
+    void Deko3DCommandList::bindVtxAttribStateChecked(const DkVtxAttribState *states, uint32_t count) {
+        if (boundVtxAttribValid && count == boundVtxAttribCount &&
+            (count == 0 || memcmp(boundVtxAttrib, states, count * sizeof(DkVtxAttribState)) == 0))
+            return;
+        dkCmdBufBindVtxAttribState(cmd, states, count);
+        if (count)
+            memcpy(boundVtxAttrib, states, count * sizeof(DkVtxAttribState));
+        boundVtxAttribCount = count;
+        boundVtxAttribValid = true;
+    }
+
+    void Deko3DCommandList::bindVtxBufferStateChecked(const DkVtxBufferState *base, uint32_t count) {
+        DkVtxBufferState eff[16]{};
+        const uint32_t n = std::min<uint32_t>(count, 16);
+        for (uint32_t i = 0; i < n; i++) {
+            eff[i] = base[i];
+            if ((drawVtxStrideMask >> i) & 1u)
+                eff[i].stride = drawVtxStride[i];
+        }
+        if (boundVtxBufStateValid && n == boundVtxBufStateCount &&
+            (n == 0 || memcmp(boundVtxBufState, eff, n * sizeof(DkVtxBufferState)) == 0))
+            return;
+        dkCmdBufBindVtxBufferState(cmd, eff, n);
+        if (n)
+            memcpy(boundVtxBufState, eff, n * sizeof(DkVtxBufferState));
+        boundVtxBufStateCount = n;
+        boundVtxBufStateValid = true;
     }
 
     void Deko3DCommandList::bindVertexInput(const Deko3DGraphicsPipeline *p, const DkShader *vs) {
@@ -1089,25 +1125,25 @@ namespace plume {
         const uint32_t drop = p->fetchedAttribs & ~used;
         // The group's hash with the dropped attributes in it (0 dropped: the pipeline's own, as changed(8) has it).
         const uint64_t h = drop ? p->groupHash[8] ^ ((uint64_t(drop) + 1) * 0x9E3779B97F4A7C15ull) : p->groupHash[8];
-        if (boundGroups[8] == h)
-            return;
-        boundGroups[8] = h;
-        if (!drop) {
-            dkCmdBufBindVtxAttribState(cmd, p->attribs, p->attribCount);
-        } else {
-            DkVtxAttribState a[32];
-            memcpy(a, p->attribs, sizeof(DkVtxAttribState) * p->attribCount);
-            for (uint32_t m = drop; m; m &= m - 1) {
-                DkVtxAttribState &st = a[__builtin_ctz(m)];
-                memset(&st, 0, sizeof(st));
-                st.isFixed = 1;  // a constant (zero), as an attribute no element feeds
-                st.size = DkVtxAttribSize_1x32;
-                st.type = DkVtxAttribType_Float;
+        if (boundGroups[8] != h) {
+            boundGroups[8] = h;
+            if (!drop) {
+                bindVtxAttribStateChecked(p->attribs, p->attribCount);
+            } else {
+                DkVtxAttribState a[32];
+                memcpy(a, p->attribs, sizeof(DkVtxAttribState) * p->attribCount);
+                for (uint32_t m = drop; m; m &= m - 1) {
+                    DkVtxAttribState &st = a[__builtin_ctz(m)];
+                    memset(&st, 0, sizeof(st));
+                    st.isFixed = 1;  // a constant (zero), as an attribute no element feeds
+                    st.size = DkVtxAttribSize_1x32;
+                    st.type = DkVtxAttribType_Float;
+                }
+                bindVtxAttribStateChecked(a, p->attribCount);
+                bumpRound(32);  // sasrt::gpu_round::kVsInputMask: binds with attributes left unfetched
             }
-            dkCmdBufBindVtxAttribState(cmd, a, p->attribCount);
-            bumpRound(32);  // sasrt::gpu_round::kVsInputMask: binds with attributes left unfetched
         }
-        dkCmdBufBindVtxBufferState(cmd, p->vtxBuffers, p->vtxBufferCount);
+        bindVtxBufferStateChecked(p->vtxBuffers, p->vtxBufferCount);
     }
 
     void Deko3DCommandList::setComputePipelineLayout(const RenderPipelineLayout *pipelineLayout) {
@@ -1272,12 +1308,16 @@ namespace plume {
     }
 
     void Deko3DCommandList::setVertexBuffers(uint32_t startSlot, const RenderVertexBufferView *views, uint32_t viewCount, const RenderInputSlot *inputSlots) {
-        // The strides are the pipeline's (as the Vulkan back end, which ignores inputSlots); a missing buffer reads the
-        // device's zero buffer, as Vulkan's null buffer.
-        (void)inputSlots;
         DkBufExtents extents[16];
         const uint32_t count = std::min<uint32_t>(viewCount, 16 - std::min<uint32_t>(startSlot, 16));
         for (uint32_t i = 0; i < count; i++) {
+            const uint32_t slot = startSlot + i;
+            if (inputSlots != nullptr) {
+                drawVtxStride[slot] = inputSlots[i].stride;
+                drawVtxStrideMask |= (1u << slot);
+            } else {
+                drawVtxStrideMask &= ~(1u << slot);
+            }
             const Deko3DBuffer *b = static_cast<const Deko3DBuffer *>(views[i].buffer.ref);
             extents[i] = (b && b->block) ? DkBufExtents{b->gpu + views[i].buffer.offset, std::max<uint32_t>(views[i].size, 4)}
                                          : DkBufExtents{device->zeroAddr, Deko3DDevice::ZeroSize};
@@ -1287,26 +1327,28 @@ namespace plume {
         if (!g_vtxDedupe) {
             if (count)
                 dkCmdBufBindVtxBuffers(cmd, startSlot, extents, count);
-            return;
-        }
-        for (uint32_t i = 0; i < count;) {
-            const uint32_t slot = startSlot + i;
-            if (((boundVtxValid >> slot) & 1) && boundVtx[slot].addr == extents[i].addr && boundVtx[slot].size == extents[i].size) {
-                ++i;
-                continue;
+        } else {
+            for (uint32_t i = 0; i < count;) {
+                const uint32_t slot = startSlot + i;
+                if (((boundVtxValid >> slot) & 1) && boundVtx[slot].addr == extents[i].addr && boundVtx[slot].size == extents[i].size) {
+                    ++i;
+                    continue;
+                }
+                uint32_t n = 0;
+                while (i + n < count) {
+                    const uint32_t s = startSlot + i + n;
+                    if (((boundVtxValid >> s) & 1) && boundVtx[s].addr == extents[i + n].addr && boundVtx[s].size == extents[i + n].size)
+                        break;
+                    boundVtx[s] = extents[i + n];
+                    boundVtxValid |= 1u << s;
+                    ++n;
+                }
+                dkCmdBufBindVtxBuffers(cmd, slot, extents + i, n);
+                i += n;
             }
-            uint32_t n = 0;
-            while (i + n < count) {
-                const uint32_t s = startSlot + i + n;
-                if (((boundVtxValid >> s) & 1) && boundVtx[s].addr == extents[i + n].addr && boundVtx[s].size == extents[i + n].size)
-                    break;
-                boundVtx[s] = extents[i + n];
-                boundVtxValid |= 1u << s;
-                ++n;
-            }
-            dkCmdBufBindVtxBuffers(cmd, slot, extents + i, n);
-            i += n;
         }
+        if (graphicsPipeline && graphicsPipeline->vtxBufferCount)
+            bindVtxBufferStateChecked(graphicsPipeline->vtxBuffers, graphicsPipeline->vtxBufferCount);
     }
 
     // ViewportTransform registers (method 0x280 + 8 * viewport): ScaleY at +1, TranslateY at +4.

@@ -51,7 +51,7 @@ namespace {
 constexpr u32 kE_OUTOFMEMORY = 0x8007000Eu;
 // D3DVIEWPORT9 {0, 0, 0xFFFF, 0xFFFF, 0.0, 1.0} in N&B's data (unk_82001744):
 // the whole surface.
-constexpr u32 kFullViewport = 0x820FAEB4;  // katamari-nx: 0x82001744->0x820FAEB4
+constexpr u32 kFullViewport = 0x821C29A8;
 // D3DRS_HIZWRITEENABLE's index in the render state table.
 constexpr u32 kRenderStateHiZWriteEnable = 97;
 
@@ -394,7 +394,7 @@ static void BeginTilingImpl(u32 device, u32 count, u32 rects_va, u32 color_va, u
   }
   d.SetW(native::off::TilingExtent, extent_x);
   d.SetW(native::off::TilingExtent + 4, extent_y);
-  d.SetW(0x337C, flags);  // katamari-nx: 0x338C->0x337C; XDK 2.0.5632 keeps Flags there (N&B's update: 0)
+  d.SetW(0x34FC, flags);
 
   if (!(flags & 1) && !(d.B(native::off::Flags3) & 0x20)) {
     // The largest tile, from its origin: its clear covers a tile of EDRAM.
@@ -407,7 +407,7 @@ static void BeginTilingImpl(u32 device, u32 count, u32 rects_va, u32 color_va, u
     // after the clear.
     float viewport[6];
     for (u32 i = 0; i < 6; ++i)
-      viewport[i] = d.F(0x3160 + i * 4);  // katamari-nx: 0x3170->0x3160
+      viewport[i] = d.F(0x32E0 + i * 4);
     i32 scissor[4];
     for (u32 i = 0; i < 4; ++i)
       scissor[i] = i32(d.W(native::off::ScissorRect + i * 4));
@@ -423,17 +423,17 @@ static void BeginTilingImpl(u32 device, u32 count, u32 rects_va, u32 color_va, u
     native::SetScissorRect(d, scissor[0], scissor[1], scissor[2], scissor[3]);
   }
   if (const auto *color = color_va ? GuestPtr<const u8>(color_va) : nullptr)
-    std::memcpy(d.bytes + 0x3380, color, 16);  // katamari-nx: 0x3390->0x3380
+    std::memcpy(d.bytes + 0x3500, color, 16);
   else
-    std::memset(d.bytes + 0x3380, 0, 16);  // katamari-nx: 0x3390->0x3380
-  d.SetF(0x3390, clear_z);  // flt_82000D18 (katamari-nx: 0x33A0->0x3390; XDK 2.0.5632: the ClearZ argument)
-  d.SetW(0x3394, clear_stencil);  // katamari-nx: 0x33A4->0x3394; XDK 2.0.5632: the ClearStencil argument
+    std::memset(d.bytes + 0x3500, 0, 16);
+  d.SetF(0x3510, clear_z);
+  d.SetW(0x3514, clear_stencil);
 
   const u32 target = d.W(native::off::RenderTargets);
-  d.SetW(0x31AC, target ? target : d.W(native::off::DepthStencil));  // katamari-nx: 0x31BC->0x31AC
+  d.SetW(0x332C, target ? target : d.W(native::off::DepthStencil));
   for (u32 i = 0; i < 5; ++i)  // the 4 targets, then depth
     d.SetW(native::off::TilingSurfaces + i * 4, d.W(native::off::RenderTargets + i * 4));
-  d.SetW(0x31A8, 2);  // katamari-nx: 0x31B8->0x31A8
+  d.SetW(0x3328, 2);
   d.SetB(native::off::Flags, d.B(native::off::Flags) | 0x20);
   d.SetW(native::off::PredicationSet, 0);
   native::UpdateTilePredicated(d);
@@ -486,7 +486,7 @@ static u32 EndTilingImpl(u32 device, bool katamari, u32 resolve_flags, u32 rects
       const u32 tile = native::off::TileRects + i * 16;
       ClearRect rect{i32(d.W(tile)), i32(d.W(tile + 4)), i32(d.W(tile + 8)), i32(d.W(tile + 12))};
       // A tile at the surface's edge resolves to a multiple of 8.
-      const u32 surface = d.W(0x31AC);  // katamari-nx: 0x31BC->0x31AC
+      const u32 surface = d.W(0x332C);
       const auto *s = surface ? GuestPtr<const be_u32>(surface) : nullptr;
       const u32 size = s ? u32(s[9]) : 0;
       if (u32(rect.x2) == (size >> 18) + 1)
@@ -505,8 +505,8 @@ static u32 EndTilingImpl(u32 device, bool katamari, u32 resolve_flags, u32 rects
           if (d.W(native::off::DepthStencil))
             flags |= 0x200;
         }
-        Resolve(device, flags, &rect, dest_texture, dest_x, dest_y, 0, 0, device + 0x3380,  // katamari-nx: 0x3390->0x3380
-                d.F(0x3390), d.W(0x3394), 0);  // katamari-nx: 0x33A0->0x3390, 0x33A4->0x3394
+        Resolve(device, flags, &rect, dest_texture, dest_x, dest_y, 0, 0, device + 0x3500,
+                d.F(0x3510), d.W(0x3514), 0);
       } else {
         Resolve(device, resolve_flags, &rect, dest_texture, dest_x, dest_y, 0, 0, color_va,
                 clear_z /*N&B: flt_82000C1C*/, clear_stencil, params);
@@ -524,7 +524,7 @@ static u32 EndTilingImpl(u32 device, bool katamari, u32 resolve_flags, u32 rects
 
   d.SetB(native::off::Flags3, d.B(native::off::Flags3) & 0xCF);
   d.SetB(native::off::Flags, d.B(native::off::Flags) & 0xDF);
-  d.SetW(0x31AC, 0);  // katamari-nx: 0x31BC->0x31AC
+  d.SetW(0x332C, 0);
   d.SetW(native::off::PredicationSet, 0);
   native::UpdateTilePredicated(d);
   d.SetW(native::off::RunPredicationState, 0);
@@ -579,7 +579,7 @@ void D3DDevice_Present_hook(u32 device) {
   FlushDeferredVertices(device);
   float viewport[6];
   for (u32 i = 0; i < 6; ++i)
-    viewport[i] = d.F(0x3160 + i * 4);  // katamari-nx: 0x3170->0x3160
+    viewport[i] = d.F(0x32E0 + i * 4);
   i32 scissor[4];
   for (u32 i = 0; i < 4; ++i)
     scissor[i] = i32(d.W(native::off::ScissorRect + i * 4));
@@ -595,7 +595,7 @@ void D3DDevice_Present_hook(u32 device) {
   native::SetViewport(d, viewport[0], viewport[1], viewport[2], viewport[3], viewport[4],
                       viewport[5]);
   native::SetScissorRect(d, scissor[0], scissor[1], scissor[2], scissor[3]);
-  native::Swap(device, front_buffer, device + 0x3530);  // katamari-nx: 0x3548->0x3530
+  native::Swap(device, front_buffer, device + 0x36DC);
   // katamari-nx: one game frame ends at Present (N&B's ended at its appMainDraw hook, renut_engine/FPS.cpp): frame
   // time, the Switch profiler's frame marks, the stall watchdog. blur-nx (2026-11-17): g_banjo_game_frames is counted
   // in the Swap hook (device.cpp) that native::Swap above runs: Blur swaps without Present.
@@ -612,32 +612,122 @@ void D3DDevice_SetPixelShader_hook(u32 device, u32 shader) {
   native::SetPixelShader(native::DeviceAt(device), shader);
 }
 
+// Asura's Wrath LTCG draw, resolve, and export wrappers.
+void Asura_D3DDevice_DrawIndexedVertices_hook(u32 device, u32 primitive, u32 start_index, u32 index_count) {
+  D3DDevice_DrawIndexedVertices_hook(device, primitive, 0, start_index, index_count);
+}
+
+void Asura_D3DDevice_DrawTessellatedVertices_hook(u32 device, u32 primitive, u32 start_vertex, u32 count) {
+  if (!Active())
+    return;
+  DrawCall call;
+  call.primitive = primitive;
+  call.tessellation = true;
+  call.indexed = false;
+  call.start_vertex = start_vertex;
+  call.count = count;
+  if (IsRecordingCommandBuffer(device))
+    RecordDraw(device, call, 0, 0);
+  else
+    QueueDraw(device, call, 0, 0);
+}
+
+void Asura_D3DDevice_Resolve_hook(u32 device, u32 flags, u32 rect_va, u32 dest_texture, u32 point_va, u32 dest_slice) {
+  D3DDevice_Resolve_hook(device, flags, rect_va, dest_texture, point_va, 0, dest_slice, 0, 1.0, 0, 0, 0);
+}
+
+void Asura_D3DDevice_BeginExport_hook(u32 device, u32 resource) {
+  D3DDevice_BeginExport_hook(device, 0, resource, 0);
+}
+
+void Asura_D3DDevice_EndExport_hook(u32 device, u32 resource) {
+  D3DDevice_EndExport_hook(device, 0, resource, 0);
+}
+
 } // namespace
 
-BANJO_RENUT_HOOK(sub_824D9D08, D3DDevice_DrawVertices_hook);  // D3DDevice_DrawVertices  // katamari-nx: N&B sub_821FB880, signature 0.90 (next 0.77)
-BANJO_RENUT_HOOK(sub_824DA0F0, D3DDevice_DrawIndexedVertices_hook);  // D3DDevice_DrawIndexedVertices  // katamari-nx: N&B sub_8263F358, signature 0.87 (next 0.78)
-BANJO_RENUT_HOOK(sub_824DA9C0, D3DDevice_DrawIndexedTessellatedVertices_hook);  // D3DDevice_DrawIndexedTessellatedVertices  // katamari-nx: N&B sub_821FF958, signature 0.86 (next 0.65)
-BANJO_RENUT_HOOK(sub_824D9758, D3DDevice_DrawVerticesUP_hook);  // D3DDevice_DrawVerticesUP  // katamari-nx: N&B sub_821FD698, D3DDevice_DrawVerticesUP: BeginVertices-style reserve, reads VerticesRingEnd +13428 (N&B +13444) and the flags +10940; sig 0.69/0.55
-BANJO_RENUT_UNHOOKED_HOOK(sub_8263F2B8, D3DDevice_DrawIndexedVerticesUP_hook);  // D3DDevice_DrawIndexedVerticesUP  // katamari-nx: not hooked (D3DDevice_DrawIndexedVerticesUP: no counterpart found (sig 0.32))
-BANJO_RENUT_HOOK(sub_824D92B8, D3DDevice_BeginVertices_hook);  // D3DDevice_BeginVertices  // katamari-nx: N&B sub_821FBD30, signature 0.87 (next 0.70)
-BANJO_RENUT_HOOK(sub_824F3248, D3DDevice_ClearF_hook);  // D3DDevice_ClearF  // katamari-nx: N&B sub_8224F110, D3DDevice_ClearF: sig 0.71/0.40; reads the targets +12432.. and tiling surfaces +12720.. as N&B +12448 / +12736
-BANJO_RENUT_HOOK(sub_824F3370, D3DDevice_Clear_hook);  // D3DDevice_Clear  // katamari-nx: N&B sub_8224F238, signature 0.84 (next 0.36)
-BANJO_RENUT_HOOK(sub_824F12B8, D3DDevice_Resolve_hook);  // D3DDevice_Resolve  // katamari-nx: N&B sub_821FC7A0, signature 0.78 (next 0.33)
-BANJO_RENUT_UNHOOKED_HOOK_SHARED(sub_82246798, D3DDevice_BeginTiling_hook);  // D3DDevice_BeginTiling: N&B's update form, see below
-BANJO_RENUT_UNHOOKED_HOOK(sub_821E17C0, D3DDevice_EndTiling_hook);  // D3DDevice_EndTiling: N&B's update form, see below
-// katamari-nx (2026-10-30): XDK 2.0.5632's BeginTiling (sub_824EFBC8: it stores the count at TileCount +0x31C4 and
-// the targets at TilingSurfaces +0x31B0, where the zones put N&B's fields; the game calls it at 0x8271E62C) and
-// EndTiling (sub_824F0150: sig 0.66/0.36, resolves through Resolve sub_824F12B8; called at 0x8272F2E0..0x8272F384),
-// with their full arguments read from the registers (the float argument takes r8's place: ClearStencil is r9).
-BANJO_RENUT_HOOK_RAW(sub_824EFBC8) {
-  BeginTilingImpl(ctx.r3.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, ctx.r4.u32, float(ctx.f1.f64), ctx.r9.u32);
+BANJO_RENUT_HOOK(sub_829995C0, D3DDevice_DrawVertices_hook);  // D3DDevice_DrawVertices
+BANJO_RENUT_HOOK(sub_829999D8, Asura_D3DDevice_DrawIndexedVertices_hook);  // D3DDevice_DrawIndexedVertices (4-arg LTCG)
+BANJO_RENUT_UNHOOKED_HOOK(sub_824DA0F0, D3DDevice_DrawIndexedVertices_hook);
+BANJO_RENUT_HOOK(sub_82999E50, Asura_D3DDevice_DrawTessellatedVertices_hook);  // D3DDevice_DrawTessellatedVertices (4-arg)
+BANJO_RENUT_UNHOOKED_HOOK(sub_824DA9C0, D3DDevice_DrawIndexedTessellatedVertices_hook);
+BANJO_RENUT_UNHOOKED_HOOK(sub_824D9758, D3DDevice_DrawVerticesUP_hook);
+BANJO_RENUT_UNHOOKED_HOOK(sub_8263F2B8, D3DDevice_DrawIndexedVerticesUP_hook);
+BANJO_RENUT_HOOK(sub_82998BC0, D3DDevice_BeginVertices_hook);  // D3DDevice_BeginVertices
+// Asura's Wrath D3DDevice_BeginIndexedVertices (sub_82999080):
+// (r3=device, r4=prim, r5=base_vertex, r6=num_vertices, r7=index_count, r8=index_format, r9=stride, r10=ppIndexData, *(sp+84)=ppVertexData)
+BANJO_RENUT_HOOK_RAW(sub_82999080) {
+  const u32 device = ctx.r3.u32;
+  const u32 primitive = ctx.r4.u32;
+  const i32 base_vertex = i32(ctx.r5.u32);
+  const u32 num_vertices = ctx.r6.u32;
+  const u32 index_count = ctx.r7.u32;
+  const u32 index_format = ctx.r8.u32;
+  const u32 stride = ctx.r9.u32;
+  const u32 pp_index_data = ctx.r10.u32;
+  const u32 pp_vertex_data = LoadU32(ctx.r1.u32 + 84u);
+  const bool indices_32 = (index_format & 4u) != 0;  // D3DFMT_INDEX32
+  const u64 vert_bytes = u64(num_vertices) * stride;
+  const u64 idx_bytes = u64(index_count) * (indices_32 ? 4u : 2u);
+  const u64 vert_aligned = (vert_bytes + 15ull) & ~15ull;
+  const u64 idx_padded = (idx_bytes + 3ull) & ~3ull;
+  if (!vert_bytes || !idx_bytes || vert_aligned + idx_padded > kVerticesScratchSize) {
+    if (pp_index_data)
+      StoreU32(pp_index_data, 0);
+    if (pp_vertex_data)
+      StoreU32(pp_vertex_data, 0);
+    ctx.r3.u64 = kE_OUTOFMEMORY;
+    return;
+  }
+  const u32 scratch = VerticesScratch(device);
+  if (!scratch) {
+    if (pp_index_data)
+      StoreU32(pp_index_data, 0);
+    if (pp_vertex_data)
+      StoreU32(pp_vertex_data, 0);
+    ctx.r3.u64 = kE_OUTOFMEMORY;
+    return;
+  }
+  StoreU32(device + d3d::kDeviceOffsetVerticesRingEnd,
+           LoadU32(device + u32(offsetof(d3d::Device, m_pRing))));
+  const u32 vert_scratch = scratch;
+  const u32 idx_scratch = scratch + u32(vert_aligned);
+  if (pp_index_data)
+    StoreU32(pp_index_data, idx_scratch);
+  if (pp_vertex_data)
+    StoreU32(pp_vertex_data, vert_scratch);
+  DrawCall call;
+  call.primitive = primitive;
+  call.indexed = true;
+  call.base_vertex = base_vertex;
+  call.count = index_count;
+  call.up_vertices = GuestPtr<const u8>(vert_scratch);
+  call.up_stride = stride;
+  call.up_vertex_count = num_vertices;
+  call.up_indices = GuestPtr<const u8>(idx_scratch);
+  call.up_indices_32 = indices_32;
+  if (Active())
+    QueueDeferredDraw(device, call, call.up_vertices, u32(vert_bytes), call.up_indices, u32(idx_bytes));
+  else
+    FlushDeferredVertices(device);
+  ctx.r3.u64 = 0;
 }
-BANJO_RENUT_HOOK_RAW(sub_824F0150) {
-  ctx.r3.u64 = EndTilingImpl(ctx.r3.u32, true, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, float(ctx.f1.f64),
-                             ctx.r9.u32, ctx.r10.u32);
+// Asura's Wrath D3DDevice_ClearF (sub_829A2D08): (r3=device, r4=flags, r5=rect_va, r6=color_va, f1=Z), stencil=0
+BANJO_RENUT_HOOK_RAW(sub_829A2D08) {
+  const u32 flags = ctx.r4.u32;
+  const double z = (flags & 0x10u) ? ctx.f1.f64 : 1.0;
+  D3DDevice_ClearF_hook(ctx.r3.u32, flags, ctx.r5.u32, ctx.r6.u32, z, 0u, 0u);
 }
-BANJO_RENUT_UNHOOKED_HOOK_SHARED(sub_82237FE8, D3DDevice_BeginExport_hook);  // D3DDevice_BeginExport  // katamari-nx: not hooked (D3DDevice_BeginExport: XDK 2.0.5632 has no memexport functions (as feedingfrenzy2-nx found for 6534))
-BANJO_RENUT_UNHOOKED_HOOK_SHARED(sub_82237D80, D3DDevice_EndExport_hook);  // D3DDevice_EndExport  // katamari-nx: not hooked (D3DDevice_EndExport: as above)
-BANJO_RENUT_HOOK(sub_824E9428, D3DDevice_Present_hook);  // D3DDevice_Present  // katamari-nx: N&B sub_826352B8, D3DDevice_Present: SynchronizeToPresentationInterval sub_824E89E8, Resolve sub_824F12B8, KickOff sub_824E0298, then Swap sub_824E8E90; sig 0.43/0.26
-BANJO_RENUT_HOOK(sub_824D4930, D3DDevice_SetVertexShader_hook);  // D3DDevice_SetVertexShader  // katamari-nx: N&B sub_821F90D8, signature 0.87 (next 0.75)
-BANJO_RENUT_HOOK(sub_824D4630, D3DDevice_SetPixelShader_hook);  // D3DDevice_SetPixelShader  // katamari-nx: N&B sub_821F58A8, signature 0.85 (next 0.73)
+BANJO_RENUT_UNHOOKED_HOOK(sub_824F3248, D3DDevice_ClearF_hook);
+BANJO_RENUT_UNHOOKED_HOOK(sub_824F3370, D3DDevice_Clear_hook);
+BANJO_RENUT_HOOK(sub_829A3420, Asura_D3DDevice_Resolve_hook);  // D3DDevice_Resolve (6-arg LTCG)
+BANJO_RENUT_UNHOOKED_HOOK(sub_824F12B8, D3DDevice_Resolve_hook);
+BANJO_RENUT_UNHOOKED_HOOK_SHARED(sub_82246798, D3DDevice_BeginTiling_hook);
+BANJO_RENUT_UNHOOKED_HOOK(sub_821E17C0, D3DDevice_EndTiling_hook);
+BANJO_RENUT_HOOK(sub_829910D8, Asura_D3DDevice_BeginExport_hook);  // D3DDevice_BeginExport (2-arg LTCG)
+BANJO_RENUT_HOOK(sub_829911F8, Asura_D3DDevice_EndExport_hook);  // D3DDevice_EndExport (2-arg LTCG)
+BANJO_RENUT_UNHOOKED_HOOK_SHARED(sub_82237FE8, D3DDevice_BeginExport_hook);
+BANJO_RENUT_UNHOOKED_HOOK_SHARED(sub_82237D80, D3DDevice_EndExport_hook);
+BANJO_RENUT_UNHOOKED_HOOK(sub_824E9428, D3DDevice_Present_hook);
+BANJO_RENUT_HOOK(sub_8299E848, D3DDevice_SetVertexShader_hook);  // D3DDevice_SetVertexShader
+BANJO_RENUT_HOOK(sub_8299E590, D3DDevice_SetPixelShader_hook);  // D3DDevice_SetPixelShader

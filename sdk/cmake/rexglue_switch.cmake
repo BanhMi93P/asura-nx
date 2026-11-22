@@ -77,6 +77,7 @@ if(NOT TARGET rexglue_switch_startup)
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/runtime_switch.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_elf_stubs.c"
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_crash_hooks.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_libnx_thread.c"
         # kameo-nx (2026-11-05): the NRO's code on 2 MB blocks.
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_code_blocks.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/../src/ui/switch_perf.cpp"

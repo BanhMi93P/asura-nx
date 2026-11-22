@@ -299,10 +299,10 @@ REXCVAR_DEFINE_INT32(banjo_renut_smaa_quality, 1, "Banjo/Enhancements",
 REXCVAR_DEFINE_DOUBLE(banjo_renut_smaa_threshold, 0.1, "Banjo/Enhancements",
                       "banjo_renut_smaa's luma edge threshold (SMAA's presets: 0.15 low, 0.1 medium and high, 0.05 "
                       "ultra): lower finds more edges (and softens more texture detail)");
-REXCVAR_DEFINE_STRING(banjo_renut_smaa_after_ps, "981A6A58F2ABFA42", "Banjo/Enhancements",
+REXCVAR_DEFINE_STRING(banjo_renut_smaa_after_ps, "0848D159B1BB3BD6,34027F363068B89E,34C04860F00B79B2,38946B3533B63398,3E71AAA08AC3C717,42B6F780290DC5C5,49C008178EE85975,51366ADBE9A97C99,539D75E86A7F6CDA,53E801CF0AD5B39E,55FD5DCCDDD3CC93,63D1F81A0D27F8BD,6E59DFC95475F687,73CD92C9B5BA87D8,7D96B8A89AC94483,A0BBA32AE2106967,AA1DD081D94BB838,B170E73C2CDE8447,D7705C9BEC1F731C,D9D0E0EA8C6ED924,F5C5909F265F1675,F71ACAB87A02A6EB,FBD82ABC4BC9123D,FD5B9B9072BB01BD", "Banjo/Enhancements",
                       "banjo_renut_smaa: pixel shaders (16-digit hex hashes, comma separated) whose draw is the frame's "
-                      "final composite; SMAA runs on its target right after it, once a frame. N&B: 981A6A58F2ABFA42, "
-                      "the bloom and depth-of-field composite before the HUD (emulator trace of 2026-10-21)");
+                      "final composite; SMAA runs on its target right after it, once a frame. Asura's Wrath: UE3 UberPostProcess "
+                      "final composite shaders before HUD");
 // banjo-nx (2026-10-21, internal resolution, the user's request; sa2-nx and Peggle 2 switch resolution by mode too).
 REXCVAR_DEFINE_INT32(banjo_renut_render_height_handheld, 720, "Banjo/Enhancements",
                      "NOT exact, the user's request (2026-10-21): on deko3d, the height of the 3D image in handheld mode: "
@@ -743,7 +743,8 @@ REXCVAR_DEFINE_BOOL(blur_renut_surface_size_guard, true, "Banjo/Renut",
 // renut-ultimate (2026-11-11, port 77; the user's rule: a key that breaks graphics in a specific game is off by
 // default): vivapinata-nx's fade frames (a clear through another layout at the same EDRAM base, which covers every tile
 // of the mask's target) came out 5-8 % white with this on, 0 % off as on the SDK's emulated GPU. blur-nx sets it true.
-REXCVAR_DEFINE_BOOL(blur_renut_wipe_overwritten, false, "Banjo/Renut",
+// Defaulted true for Asura's Wrath to prevent stale EDRAM overlap clears from wiping SceneColor/SceneColorRaw.
+REXCVAR_DEFINE_BOOL(blur_renut_wipe_overwritten, true, "Banjo/Renut",
                     "From blur-nx (2026-11-10, port 76; A/B 218): vivapinata-nx's EDRAM wipe (a clear through another "
                     "layout, applied at the wiped target's next resolve when nothing wrote it since) is left out when "
                     "another target over the same EDRAM tiles was drawn or cleared after the wipe: on the console that "
@@ -1323,6 +1324,14 @@ void StatsGameFrame() {
   const double since = std::chrono::duration<double>(now - g_stats.last_report).count();
   if (since < 10.0)
     return;
+  auto *core_log = ::rex::GetLoggerRaw(::rex::log::core());
+  if (!core_log || !core_log->should_log(spdlog::level::info)) {
+    if (const std::string dd = ::renut::gpu::DroppedDrawsReport(); !dd.empty())
+      REXLOG_WARN("[renut] {}", dd);
+    g_stats.total = {};
+    g_stats.last_report = now;
+    return;
+  }
   // blur-nx (2026-11-17, the Renut audit's #31, a census): this report is built on the game thread at its Swap (the
   // Game Master in Blur), under g_stats.mutex; how long it takes is logged at its end (the next report says the last).
   struct ReportClock {

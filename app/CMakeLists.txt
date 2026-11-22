@@ -1,4 +1,4 @@
-﻿# renut - ReXGlue Recompiled Project
+# renut - ReXGlue Recompiled Project
 #
 # This file is yours to edit. 'rexglue migrate' will NOT overwrite it.
 # SDK boilerplate lives in generated/rexglue.cmake.
@@ -149,21 +149,27 @@ include(generated/rexglue.cmake)
 # wins. Without the precompiled header: GCC does not use a PCH made with optimisation in an -O0 file ("__OPTIMIZE__ not
 # defined"); renut_init.h includes renut_pch.h itself. LTO keeps each function's own level. OFF: as before.
 option(BANJO_REGISTER_O0 "Switch: the function registration file at -O0, without the PCH (build time)" ON)
-if(BANJO_REGISTER_O0 AND REXGLUE_PLATFORM_SWITCH AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp")
-    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp" APPEND PROPERTY COMPILE_OPTIONS -O0)
-    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp" PROPERTY SKIP_PRECOMPILE_HEADERS ON)
+if(BANJO_REGISTER_O0 AND REXGLUE_PLATFORM_SWITCH)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/asurawrath_register.cpp")
+        set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/asurawrath_register.cpp" APPEND PROPERTY COMPILE_OPTIONS -O0)
+        set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/asurawrath_register.cpp" PROPERTY SKIP_PRECOMPILE_HEADERS ON)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp")
+        set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp" APPEND PROPERTY COMPILE_OPTIONS -O0)
+        set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp" PROPERTY SKIP_PRECOMPILE_HEADERS ON)
+    endif()
 endif()
 
 # banjo-nx (from sa2-nx): the optimised codegen. The build re-runs the generator by itself whenever an input in
 # codegen.d changes (renut_config.toml with the codegen keys, the xex, the generator binary). That rewrites
 # app/generated and would silently drop the post-codegen steps (no-volatile pch + loop barriers, direct calls): they are
 # appended to the same command (docs/enhancements.md, "Build-time"). The Switch cross build has no generator target.
-if(TARGET renut_codegen)
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
-    add_custom_command(OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/generated/codegen.build.stamp" APPEND
-        COMMAND "${CMAKE_COMMAND}" -E env "REXSDK_DIR=${REXSDK_DIR}"
-                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../tools/post_codegen.py")
-endif()
+# Codegen disabled: recompiled sources already integrated in generated/default
+# if(TARGET renut_codegen)
+#     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+#     add_custom_command(OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp" APPEND
+#         COMMAND "${CMAKE_COMMAND}" -E env "REXSDK_DIR=${REXSDK_DIR}"
+#                 "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../tools/post_codegen.py")
+# endif()
 # The codegen flavour (written by tools/post_codegen.py) names the build in the "[enhancements]" log line.
 set(BANJO_FLAVOR_FILE "${CMAKE_CURRENT_SOURCE_DIR}/generated/codegen_flavor.txt")
 set(BANJO_BUILD_FLAVOR "classic codegen")
@@ -189,14 +195,16 @@ endif()
 # shader harvest): src/katamari_keys.cpp defines the keys of those files that the kept ones still read.
 # renut-ultimate (2026-11-20, port 193): the game's name in the build stamp (src/build_stamp.cpp) and the NRO's title. A
 # port sets its own here.
-set(RENUT_GAME_NAME "Beautiful Katamari")
+set(RENUT_GAME_NAME "Asura's Wrath")
 
 set(RENUT_SOURCES
     src/main.cpp
     src/build_stamp.cpp  # port 193: the build stamp, the first line of every log (cmake/build_stamp.cmake)
-    src/katamari_keys.cpp
     src/game_menu.cpp  # blur-nx (2026-11-18): the game menu (A+B+X+Y+L+R on the Switch, F8 on the PC)
     src/blur_small_alloc.cpp  # blur-nx (2026-11-17, #220; port 151): small C++ allocations per thread (Switch; 32 MB)
+    src/game/frame_rate.cpp
+    src/game/skip_intro.cpp
+    src/input/pad_remap.cpp
     # katamari-nx (2026-10-31): DLC packages in the "dlc" folder next to the NRO installed at start (reNut upstream's).
     src/renut_engine/dlc_install.cpp
 	src/renut_engine/FPS.cpp
@@ -224,10 +232,9 @@ set(RENUT_SOURCES
     src/cpu/banjo_forms_selfcheck.cpp
     # blur-nx (2026-11-11, port 90): timings of a few processor forms at boot (blur_microbench, off).
     src/cpu/blur_microbench.cpp
-    # katamari-nx (2026-11-01): diagnostic of the game state's stage fields (katamari_diag_game_state, off).
-    src/cpu/katamari_stage_diag.cpp
-    # katamari-nx: the native copies of hot game functions (banjo_hot_guest.cpp and its shards), from this game's PC
-    # profile (docs/katamari-notes.md, "Hot functions"): src/cpu/hot/localized.txt and hand.txt.
+    # Asura's Wrath stubs and keys (replaces Katamari/Banjo-specific hot guest copies)
+    src/asura_keys.cpp
+    src/asura_startup_overlay.cpp
     src/cpu/banjo_hot_guest.cpp
     src/cpu/banjo_hot_shard_0.cpp
     src/cpu/banjo_hot_shard_1.cpp
@@ -256,7 +263,8 @@ if(REXGLUE_PLATFORM_SWITCH)
         # PGO profile collection (BANJO_PGO=generate; empty otherwise). From sa2-nx.
         src/banjo_pgo.cpp)
 else()
-    list(APPEND RENUT_SOURCES src/renut_engine/mnk_controls.cpp
+    list(APPEND RENUT_SOURCES
+        src/renut_engine/mnk_controls.cpp
         # Switch profiler counters the native renderer calls (no-ops on PC).
         src/me/me_pc_stubs.cpp
         # Sampling CPU profiler for PC tests, from nfsmw-nx (nfsmw_perfil_pc_desde_s; logs/perfil_pc.csv).
@@ -287,16 +295,26 @@ add_custom_target(renut_build_stamp
 add_dependencies(renut renut_build_stamp)
 target_include_directories(renut PRIVATE "${RENUT_BUILD_STAMP_DIR}")
 set_source_files_properties(src/build_stamp.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties(src/asura_startup_overlay.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/installing.jpg;${CMAKE_CURRENT_SOURCE_DIR}/assets/intro_anim.bin"
+)
 
 # GPU_PLUGINS stages the emulated-GPU backend (rexgpu-xenos.dll) next to the exe.
 # It is only used when the gpu_plugin cvar is "xenos"; empty means no GPU at all
 # (the game runs but the screen stays black).
 rexglue_setup_target(renut GPU_PLUGINS xenos)
+target_include_directories(renut PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/generated")
+
+# Ensure the recompiled target name is properly configured and links rex::runtime
+if(TARGET renut_recomp)
+    target_link_libraries(renut_recomp PRIVATE rex::runtime)
+endif()
 
 # banjo-nx (2026-10-17): Ryujinx starts NROs without argv[0]; the SDK then takes the NRO's usual place on the SD
 # (sdk/src/core/filesystem_posix.cpp). A console's hbloader always passes the path, so nothing changes there.
 if(REXGLUE_PLATFORM_SWITCH AND TARGET rexcore)
-    target_compile_definitions(rexcore PRIVATE REX_SWITCH_FALLBACK_EXE="/switch/katamari-nx/katamari-nx.nro")
+    target_compile_definitions(rexcore PRIVATE REX_SWITCH_FALLBACK_EXE="/switch/asura-nx/asurawrath_nx.nro")
 endif()
 
 # banjo-nx (2026-10-16): Renut's Direct3D-level renderer as a second renderer, chosen at boot (banjo_renderer = "renut";
@@ -348,7 +366,8 @@ endif()
 # -ffp-contract=off is already on the whole target (above). On the PC the same census definition as the game code, so
 # the any-mode helper counts stay complete.
 # 2026-10-22: the bulk shards are the same kind of code (BANJO_HOT_SOURCES: every file that compiles copies).
-set(BANJO_HOT_SOURCES src/cpu/banjo_hot_guest.cpp
+set(BANJO_HOT_SOURCES
+    src/cpu/banjo_hot_guest.cpp
     src/cpu/banjo_hot_shard_0.cpp
     src/cpu/banjo_hot_shard_1.cpp
     src/cpu/banjo_hot_shard_2.cpp
@@ -891,6 +910,8 @@ target_include_directories(renut PRIVATE
     src/me
     src/me/masseffect
     src/me/masseffect/shaders
+    "${REXSDK_DIR}"
+    "${REXSDK_DIR}/include"
     "${REXSDK_DIR}/src/core")
 
 # CPU-only SDK sources the native renderer reuses (draw-extent estimation, shader microcode interpretation): the
@@ -933,10 +954,8 @@ if(REXGLUE_PLATFORM_SWITCH)
     # Link map: which object each function came from, for ranking the profiler's samples per function
     # (tools/switch-cpu-profile.py). It must come from the same build as the NRO that was profiled.
     target_link_options(renut PRIVATE "LINKER:-Map=${CMAKE_BINARY_DIR}/renut.map")
-    # katamari-nx (2026-11-02, the user: only these settings in the toml, the rest hardcoded; sa2-nx's design): the fixed
-    # settings compiled in (src/renut_app.h BuiltInConfig), and the player's katamari.toml, written next to the NRO when
-    # it is missing (DefaultConfigFile). KATAMARI_BUILTIN_CONFIG=OFF: test builds that read a full renut.toml.
-    option(KATAMARI_BUILTIN_CONFIG "Switch: the fixed settings compiled in, the player's options in katamari.toml" ON)
+    # Built-in config: KATAMARI_BUILTIN_CONFIG=OFF reads the full renut.toml.
+    option(KATAMARI_BUILTIN_CONFIG "Switch: the fixed settings compiled in, the player's options in katamari.toml" OFF)
     if(KATAMARI_BUILTIN_CONFIG)
         file(READ "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch_defaults.toml" KATAMARI_BUILTIN_TEXT)
         file(READ "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch.toml" KATAMARI_PLAYER_TEXT)
@@ -948,17 +967,18 @@ if(REXGLUE_PLATFORM_SWITCH)
                      "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch_defaults.toml"
                      "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch.toml")
     endif()
-    set(RENUT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/katamari_icon.jpg")
+    set(RENUT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/icon.png")
+    if(NOT EXISTS "${RENUT_ICON}")
+        set(RENUT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/katamari_icon.jpg")
+    endif()
     set(RENUT_ICON_ARG)
     if(EXISTS "${RENUT_ICON}")
         set(RENUT_ICON_ARG ICON "${RENUT_ICON}")
     endif()
-    # katamari-nx (2026-11-02, the user's request): author ChanseyIsTheBest, the user's icon (the cover art).
-    # 2026-11-05: version 1.0.1, the game's memory and the NRO's code on 2 MB blocks, and the boot's cvars.
     rexglue_switch_add_nro(renut
         NAME "${RENUT_GAME_NAME}"  # port 193: set once, above
-        AUTHOR "ChanseyIsTheBest"
-        VERSION "1.0.1"
+        AUTHOR "Bánh Mì"
+        VERSION "1.0.0"
         ${RENUT_ICON_ARG})
 endif()
 

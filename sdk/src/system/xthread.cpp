@@ -82,6 +82,7 @@ std::atomic<int32_t> g_guest_main_core{-1};
 std::atomic<uint32_t> g_guest_layout_gen{0};
 thread_local uint32_t t_layout_applied = 0;
 thread_local uint8_t t_guest_kind = 0;
+thread_local bool t_layout_locked = false;
 }  // namespace
 #endif
 
@@ -686,8 +687,9 @@ X_STATUS XThread::Terminate(int exit_code) {
 }
 
 void XThread::Execute() {
-  REXSYS_NOISY_DEBUG("Execute thid {} (handle={:08X}, '{}', native={:08X})", thread_id_, handle(),
-                     thread_name_, thread_->system_id());
+  REXSYS_INFO("XThread {:08X} ('{}', id={}) starting at {:08X} (xapi={:08X})", handle(),
+              thread_name_, thread_id_, creation_params_.start_address,
+              creation_params_.xapi_thread_startup);
 
   // Let the kernel know we are starting.
   kernel_state_->OnThreadExecute(this);
@@ -1146,6 +1148,8 @@ void ApplyGuestCoreLayoutAtWait() {
     if (auto* hook = g_guest_wait_hook.load(std::memory_order_acquire)) hook();
   }
 #if REX_PLATFORM_SWITCH
+  if (t_layout_locked) [[unlikely]]
+    return;
   const uint32_t gen = g_guest_layout_gen.load(std::memory_order_acquire);
   if (gen == 0 || gen == t_layout_applied) [[likely]]
     return;
@@ -1153,9 +1157,25 @@ void ApplyGuestCoreLayoutAtWait() {
   if (t_guest_kind == 1) {
     const int32_t core = g_guest_main_core.load(std::memory_order_relaxed);
     if (core >= 0) RexSwitchSetCurrentThreadMask(core, uint64_t(1) << core);
+    // Raise Main XThread above 0x3B workers/TimerQueue (stays below Render 0x2C and Audio 0x2A-0x2D).
+    RexSwitchSetCurrentThreadPriority(0x30);
   } else if (t_guest_kind == 2) {
     const uint32_t mask = g_guest_core_mask.load(std::memory_order_relaxed);
-    if (mask) RexSwitchSetCurrentThreadMask(g_guest_core_preferred.load(std::memory_order_relaxed), mask);
+    if (mask) {
+      // Spread non-main guest workers (e.g. UE3 RenderThread & Havok Physics) across all cores in mask
+      // instead of piling all of them onto the same preferred core at priority 0x3B.
+      static std::atomic<uint32_t> g_other_core_rr{0};
+      int cores[4];
+      int ncores = 0;
+      for (int c = 0; c < 4; ++c) {
+        if (mask & (1u << c)) cores[ncores++] = c;
+      }
+      int pref = g_guest_core_preferred.load(std::memory_order_relaxed);
+      if (ncores >= 2) {
+        pref = cores[g_other_core_rr.fetch_add(1, std::memory_order_relaxed) % uint32_t(ncores)];
+      }
+      RexSwitchSetCurrentThreadMask(pref, mask);
+    }
   }
 #endif
 }
@@ -1669,6 +1689,30 @@ extern "C" uint32_t RexSetGuestThreadCoreLayout(int main_core, uint32_t others_m
   (void)others_mask;
   (void)others_preferred;
   return 0;
+#endif
+}
+
+extern "C" void RexSwitchLockCurrentGuestThreadLayout(void) {
+#if REX_PLATFORM_SWITCH
+  t_layout_locked = true;
+  t_layout_applied = g_guest_layout_gen.load(std::memory_order_acquire);
+#endif
+}
+
+extern "C" bool RexSwitchSetCustomGuestThreadPlacement(int preferred_core, uint32_t core_mask, int priority) {
+#if REX_PLATFORM_SWITCH
+  if (t_guest_kind != 2) return false;
+  t_layout_locked = true;
+  t_layout_applied = g_guest_layout_gen.load(std::memory_order_acquire);
+  bool ok = true;
+  if (core_mask) ok = RexSwitchSetCurrentThreadMask(preferred_core, core_mask) && ok;
+  if (priority >= 0) ok = RexSwitchSetCurrentThreadPriorityOk(priority) && ok;
+  return ok;
+#else
+  (void)preferred_core;
+  (void)core_mask;
+  (void)priority;
+  return false;
 #endif
 }
 

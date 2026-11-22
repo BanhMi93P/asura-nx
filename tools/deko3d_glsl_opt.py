@@ -1195,53 +1195,73 @@ def pass_earlyz(text):
 
 PLAINFETCH_DECL = ('#ifndef SPIRV_CROSS_CONSTANT_ID_926\n#define SPIRV_CROSS_CONSTANT_ID_926 0u\n#endif\n'
                    'const uint g_sasrtPlainFetch = SPIRV_CROSS_CONSTANT_ID_926;\n')
-_PF_COND = r'(?:!\(\((_\d+) \| (_\d+)\) != 0u\)|(_\d+))'
+_PF_COND = (r'(?:!\(\((_\d+) \| (_\d+)\) != 0u\)'
+            r'|\(\((_\d+) & 15u\) \| \((_\d+) & 7u\)\) == 0u'
+            r'|\((_\d+) \| (_\d+)\) == 0u'
+            r'|(_\d+))')
 _PF_BLOCK = re.compile(r'bool (_\d+);\s*if \(' + _PF_COND + r'\)\s*\{\s*\1 = (_\d+) != 0;\s*\}\s*else\s*\{\s*\1 = true;\s*\}')
-_PF_NOT = r'bool {v} = !\(\((_\d+) \| (_\d+)\) != 0u\);'
-_PF_SIGNS = r'uint {v} = \(g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 16u\) & 15u;'
-_PF_GAMMA = r'uint {v} = \(g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 13u\) & 7u;'
-_PF_EXP = r'int {v} = int\(g_UboShared\.v\[(\d+)u\]\.([xyzw]) << 6u\) >> 26;'
+_PF_P_RE = re.compile(
+    r'bool (_\d+) = (?:'
+    r'!\(\((_\d+) \| (_\d+)\) != 0u\)'
+    r'|\(\((_\d+) & 15u\) \| \((_\d+) & 7u\)\) == 0u'
+    r'|\((_\d+) \| (_\d+)\) == 0u);'
+)
+_PF_ALIAS_15 = re.compile(r'uint (_\d+) = (_\d+) & 15u;')
+_PF_ALIAS_7 = re.compile(r'uint (_\d+) = (_\d+) & 7u;')
+_PF_SIGNS_1 = re.compile(r'uint (_\d+) = \(g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 16u\) & 15u;')
+_PF_SIGNS_RAW = re.compile(r'uint (_\d+) = g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 16u;')
+_PF_GAMMA_1 = re.compile(r'uint (_\d+) = \(g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 13u\) & 7u;')
+_PF_GAMMA_RAW = re.compile(r'uint (_\d+) = g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 13u;')
+_PF_EXP_RE = re.compile(r'int (_\d+) = int\(g_UboShared\.v\[(\d+)u\]\.([xyzw]) << 6u\) >> 26;')
 
 
 def _pf_byte(m):
-    return int(m.group(1)) * 16 + 'xyzw'.index(m.group(2)) * 4
+    return int(m.group(2)) * 16 + 'xyzw'.index(m.group(3)) * 4
 
 
 def pass_plainfetch(text):
     """Renut's texture fetches apply Xenos' per-fetch-constant signs and gamma (SharedConstants.sampler_indices bits
     13-19: v[24 + r / 4]) and the exponent adjust (texture_indices bits 20-25: v[r / 4] for a 2D fetch) to the texel in
     a block that runs only when the fetch constant has any; for every other fetch the block is skipped and the texel is
-    used as it is. The block is a uniform branch, but its temporaries count in the shader's registers (the race's
-    G-buffer shader 33 GPRs with them, 28 without; the final pass 42 and 31). Constant 926, bit r: the draw's words for
-    fetch constant r have none of the three (render/draw.cpp SasrtPlainFetchMask), so the block's condition is false at
-    compile time and uam drops it. Its default 0 leaves every block as it was. Same pixels: the condition was false for
-    that draw anyway."""
-    if 'SPIRV_CROSS_CONSTANT_ID_926' in text or '>> 16u) & 15u;' not in text:
+    used as it is. Constant 926, bit r: the draw's words for fetch constant r have none of the three, so the block's
+    condition is false at compile time and uam drops it."""
+    if 'SPIRV_CROSS_CONSTANT_ID_926' in text or '>> 16u' not in text:
         return text
     is_vertex = re.search(r'\bgl_Position\b', text) is not None  # vivapinata-nx (2026-11-12): vertex shaders too
+    p_map = {m.group(1): (m.group(2) or m.group(4) or m.group(6), m.group(3) or m.group(5) or m.group(7))
+             for m in _PF_P_RE.finditer(text)}
+    a15_map = {m.group(1): m.group(2) for m in _PF_ALIAS_15.finditer(text)}
+    a7_map = {m.group(1): m.group(2) for m in _PF_ALIAS_7.finditer(text)}
+    signs_map = {}
+    for rx in (_PF_SIGNS_1, _PF_SIGNS_RAW):
+        for m in rx.finditer(text):
+            signs_map[m.group(1)] = m
+    gamma_map = {}
+    for rx in (_PF_GAMMA_1, _PF_GAMMA_RAW):
+        for m in rx.finditer(text):
+            gamma_map[m.group(1)] = m
+    exp_map = {m.group(1): m for m in _PF_EXP_RE.finditer(text)}
     edits = []
     for m in _PF_BLOCK.finditer(text):
-        b, x, y, p, e = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        b = m.group(1)
+        x = m.group(2) or m.group(4) or m.group(6)
+        y = m.group(3) or m.group(5) or m.group(7)
+        p, e = m.group(8), m.group(9)
         if p:
-            mn = re.search(_PF_NOT.format(v=re.escape(p)), text)
-            if not mn:
+            pair = p_map.get(p)
+            if not pair:
                 continue
-            x, y = mn.group(1), mn.group(2)
-        ms = re.search(_PF_SIGNS.format(v=re.escape(x)), text)
-        mg = re.search(_PF_GAMMA.format(v=re.escape(y)), text)
-        me = re.search(_PF_EXP.format(v=re.escape(e)), text)
+            x, y = pair
+        ms = signs_map.get(x) or signs_map.get(a15_map.get(x, ''))
+        mg = gamma_map.get(y) or gamma_map.get(a7_map.get(y, ''))
+        me = exp_map.get(e)
         if not (ms and mg and me):
             continue
         sb, gb, eb = _pf_byte(ms), _pf_byte(mg), _pf_byte(me)
         r = (sb - 384) // 4
-        # the words of one fetch constant r: sampler_indices[r] (bytes 384-511) for both, texture_indices[d][r] (d the
-        # fetch's dimension, bytes 0-383) for the exponent
         if sb != gb or not 384 <= sb < 512 or eb >= 384 or eb % 128 != 4 * r:
             continue
-        # vivapinata-nx (2026-11-12, A/B 150): a samplerk read (its line after SK_MARK) skips its block only with 975
         gate = f'((g_sasrtPlainFetch >> {r}u) & 1u) == 0u'
-        # 2026-11-12: and every fetch of a vertex shader (926 says the vertex shader's fetches too only since the shader
-        # round, render/draw.cpp SasrtPlainFetchMask's vs_entry)
         if text[:ms.start()].rstrip().endswith(SK_MARK) or is_vertex:
             gate = f'(!g_vivaRound || {gate})'
         edits.append((m.end(), f'\n    {b} = {b} && {gate};'))
@@ -1258,10 +1278,23 @@ def pass_plainfetch(text):
 # round: sasrt_gpu_fetch_conversion_spec, constants 950-957)
 
 _FC_SIGNS = re.compile(r'^(\s*uint (_\d+) = )(\(g_UboShared\.v\[(2[4-5])u\]\.([xyzw]) >> 16u\) & 15u);$', re.M)
+_FC_SIGNS_RAW = re.compile(r'^(\s*uint (_\d+) = )(g_UboShared\.v\[(2[4-5])u\]\.([xyzw]) >> 16u);$', re.M)
 _FC_GAMMA = re.compile(r'^(\s*uint (_\d+) = )(\(g_UboShared\.v\[(2[4-5])u\]\.([xyzw]) >> 13u\) & 7u);$', re.M)
+_FC_GAMMA_RAW = re.compile(r'^(\s*uint (_\d+) = )(g_UboShared\.v\[(2[4-5])u\]\.([xyzw]) >> 13u);$', re.M)
 _FC_EXP = re.compile(r'^(\s*int (_\d+) = )(int\(g_UboShared\.v\[([0-1])u\]\.([xyzw]) << 6u\) >> 26);$', re.M)
 # sasrt-nx (2026-11-09, sasrt_gpu_fetch_exp_3d_spec): the 3D (v[8 + r / 4]) and cube (v[16 + r / 4]) words' exponent
 _FC_EXP3 = re.compile(r'^(\s*int (_\d+) = )(int\(g_UboShared\.v\[(8|9|16|17)u\]\.([xyzw]) << 6u\) >> 26);$', re.M)
+
+
+def _fc_raw_uses_ok(text, decl_end, var, is_signs):
+    """Ensure raw shifted variable only has its low 4 (signs) or low 3 (gamma) bits read."""
+    pat = re.compile(r'\b' + re.escape(var) + r'\b')
+    allow = (re.compile(r'^(?: & (?:15|1|2|4|8)u\b| >> [123]u\) & 1u)') if is_signs else
+             re.compile(r'^(?: & (?:7|1|2|4)u\b| >> [12]u\) & 1u)'))
+    for u in pat.finditer(text, decl_end):
+        if not allow.match(text, u.end()):
+            return False
+    return True
 
 
 def _fc_decl(r):
@@ -1278,7 +1311,7 @@ def pass_fetchconv(text):
     words in bits 0-3, 4-6 and 7-12; each read of them becomes the constant, so the selects fold to the conversions this
     draw's texture has on the channels that have them, and the block's condition to false where none (as pass plainfetch,
     which it runs after). Default 0: each read as it was. Same values: the same pixels."""
-    if 'SPIRV_CROSS_CONSTANT_ID_950' in text or '>> 16u) & 15u;' not in text:
+    if 'SPIRV_CROSS_CONSTANT_ID_950' in text or '>> 16u' not in text:
         return text
     used = set()
 
@@ -1292,9 +1325,23 @@ def pass_fetchconv(text):
         used.add(r)
         return f'{m.group(1)}g_sasrtConvKnown{r} ? (g_sasrtConv{r} & 15u) : ({m.group(3)});'
 
+    def signs_raw(m):
+        r = slot(m, 24)
+        if r >= 8 or not _fc_raw_uses_ok(text, m.end(), m.group(2), True):
+            return m.group(0)
+        used.add(r)
+        return f'{m.group(1)}g_sasrtConvKnown{r} ? (g_sasrtConv{r} & 15u) : ({m.group(3)});'
+
     def gamma(m):
         r = slot(m, 24)
         if r >= 8:
+            return m.group(0)
+        used.add(r)
+        return f'{m.group(1)}g_sasrtConvKnown{r} ? ((g_sasrtConv{r} >> 4u) & 7u) : ({m.group(3)});'
+
+    def gamma_raw(m):
+        r = slot(m, 24)
+        if r >= 8 or not _fc_raw_uses_ok(text, m.end(), m.group(2), False):
             return m.group(0)
         used.add(r)
         return f'{m.group(1)}g_sasrtConvKnown{r} ? ((g_sasrtConv{r} >> 4u) & 7u) : ({m.group(3)});'
@@ -1319,7 +1366,9 @@ def pass_fetchconv(text):
         return f'{m.group(1)}((g_sasrtExp{cid} >> 7u) != 0u) ? (int(g_sasrtExp{cid} << 26u) >> 26) : ({m.group(3)});'
 
     text = _FC_SIGNS.sub(signs, text)
+    text = _FC_SIGNS_RAW.sub(signs_raw, text)
     text = _FC_GAMMA.sub(gamma, text)
+    text = _FC_GAMMA_RAW.sub(gamma_raw, text)
     text = _FC_EXP.sub(exp, text)
     text = _FC_EXP3.sub(exp3, text)
     if not used and not used3:
@@ -2738,71 +2787,7 @@ def with_viva_round(text):
     return text if 'SPIRV_CROSS_CONSTANT_ID_975' in text else insert_globals(text, VIVAROUND_DECL)
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# pass: plainfetch — a fetch's sign, gamma and exponent code dropped where the draw's fetch words have none
-# (sasrt-nx, 2026-11-08, the GPU round after its move to the ultimate base: sasrt_gpu_plain_fetches, constant 926;
-# renut-ultimate port 44, measured by rr6-nx the same day: with the ultimate renderer its pixel shaders were about 120
-# instructions heavier per fetch and the race drew 3.2 ms a frame more on the GPU. The mask: render/draw.cpp
-# PlainFetchMask)
-
-PLAINFETCH_DECL = ('#ifndef SPIRV_CROSS_CONSTANT_ID_926\n#define SPIRV_CROSS_CONSTANT_ID_926 0u\n#endif\n'
-                   'const uint g_sasrtPlainFetch = SPIRV_CROSS_CONSTANT_ID_926;\n')
-_PF_COND = r'(?:!\(\((_\d+) \| (_\d+)\) != 0u\)|(_\d+))'
-_PF_BLOCK = re.compile(r'bool (_\d+);\s*if \(' + _PF_COND + r'\)\s*\{\s*\1 = (_\d+) != 0;\s*\}\s*else\s*\{\s*\1 = true;\s*\}')
-_PF_NOT = r'bool {v} = !\(\((_\d+) \| (_\d+)\) != 0u\);'
-_PF_SIGNS = r'uint {v} = \(g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 16u\) & 15u;'
-_PF_GAMMA = r'uint {v} = \(g_UboShared\.v\[(\d+)u\]\.([xyzw]) >> 13u\) & 7u;'
-_PF_EXP = r'int {v} = int\(g_UboShared\.v\[(\d+)u\]\.([xyzw]) << 6u\) >> 26;'
-
-
-def _pf_byte(m):
-    return int(m.group(1)) * 16 + 'xyzw'.index(m.group(2)) * 4
-
-
-def pass_plainfetch(text):
-    """Renut's texture fetches apply Xenos' per-fetch-constant signs and gamma (SharedConstants.sampler_indices bits
-    13-19: v[24 + r / 4]) and the exponent adjust (texture_indices bits 20-25: v[r / 4] for a 2D fetch) to the texel in
-    a block that runs only when the fetch constant has any; for every other fetch the block is skipped and the texel is
-    used as it is. The block is a uniform branch, but its temporaries count in the shader's registers (the race's
-    G-buffer shader 33 GPRs with them, 28 without; the final pass 42 and 31). Constant 926, bit r: the draw's words for
-    fetch constant r have none of the three (render/draw.cpp PlainFetchMask), so the block's condition is false at
-    compile time and uam drops it. Its default 0 leaves every block as it was. Same pixels: the condition was false for
-    that draw anyway."""
-    if 'SPIRV_CROSS_CONSTANT_ID_926' in text or '>> 16u) & 15u;' not in text:
-        return text
-    is_vertex = re.search(r'\bgl_Position\b', text) is not None  # vivapinata-nx (2026-11-12): vertex shaders too
-    edits = []
-    for m in _PF_BLOCK.finditer(text):
-        b, x, y, p, e = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
-        if p:
-            mn = re.search(_PF_NOT.format(v=re.escape(p)), text)
-            if not mn:
-                continue
-            x, y = mn.group(1), mn.group(2)
-        ms = re.search(_PF_SIGNS.format(v=re.escape(x)), text)
-        mg = re.search(_PF_GAMMA.format(v=re.escape(y)), text)
-        me = re.search(_PF_EXP.format(v=re.escape(e)), text)
-        if not (ms and mg and me):
-            continue
-        sb, gb, eb = _pf_byte(ms), _pf_byte(mg), _pf_byte(me)
-        r = (sb - 384) // 4
-        # the words of one fetch constant r: sampler_indices[r] (bytes 384-511) for both, texture_indices[d][r] (d the
-        # fetch's dimension, bytes 0-383) for the exponent
-        if sb != gb or not 384 <= sb < 512 or eb >= 384 or eb % 128 != 4 * r:
-            continue
-        # vivapinata-nx (2026-11-12, A/B 150): a samplerk read (its line after SK_MARK) skips its block only with 975
-        gate = f'((g_sasrtPlainFetch >> {r}u) & 1u) == 0u'
-        # 2026-11-12: and every fetch of a vertex shader (926 says the vertex shader's fetches too only since the shader
-        # round, render/draw.cpp SasrtPlainFetchMask's vs_entry)
-        if text[:ms.start()].rstrip().endswith(SK_MARK) or is_vertex:
-            gate = f'(!g_vivaRound || {gate})'
-        edits.append((m.end(), f'\n    {b} = {b} && {gate};'))
-    if not edits:
-        return text
-    for at, code in reversed(edits):
-        text = text[:at] + code + text[at:]
-    text = insert_globals(text, PLAINFETCH_DECL)
-    return with_viva_round(text) if '(!g_vivaRound || ' in text else text
+# (pass_plainfetch is defined once above pass_fetchconv)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -3166,6 +3151,92 @@ def pass_clamp7e3(text):
     return insert_globals(insert_before_main(text, CLAMP7E3_FN), CLAMP7E3_DECL)
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# pass: logrsqabs — wrap log2(...) and inversesqrt(...) operands in abs(...) to prevent NaN on negative inputs
+
+_LOG_RSQ_RE = re.compile(r'\b(log2|inversesqrt)\(')
+
+
+def _wrap_log_rsq_abs(s):
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        m = _LOG_RSQ_RE.search(s, i)
+        if not m:
+            out.append(s[i:])
+            break
+        open_i = m.end() - 1
+        close_i = matching(s, open_i, '(', ')')
+        if close_i < 0:
+            out.append(s[i:])
+            break
+        out.append(s[i:open_i + 1])
+        inner = _wrap_log_rsq_abs(s[open_i + 1:close_i])
+        stripped = inner.lstrip()
+        if stripped.startswith('abs(') and matching(stripped, 3, '(', ')') == len(stripped.rstrip()) - 1:
+            out.append(inner)
+        else:
+            out.append(f'abs({inner})')
+        out.append(')')
+        i = close_i + 1
+    return ''.join(out)
+
+
+def pass_logrsqabs(text):
+    """Wrap log2(x) and inversesqrt(x) operands in abs(x) when not already wrapped in abs(...), matching D3D9 LOG/RSQ."""
+    if 'log2(' not in text and 'inversesqrt(' not in text:
+        return text
+    return map_main(text, _wrap_log_rsq_abs)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# pass: fixed16bias — 16-bit fixed-point targets (k_16_16 / k_16_16_16_16, g_banjoTargetBiasRgb == 2u) clamp to -32..32
+
+_F16_RGB_RE = re.compile(r'^([ \t]*)vec3 (_\d+) = ([^\n;]+ \* _\d+);$', re.M)
+_F16_ALP1_RE = re.compile(r'^([ \t]*_\d+\.w = )clamp\((_\d+\.w \* _\d+), 0\.0, 1\.0\);$', re.M)
+_F16_ALP2_RE = re.compile(
+    r'^([ \t]*float (_\d+) = _\d+\.w;\s*\n[ \t]*float (_\d+) = \2 \* _\d+;\s*\n[ \t]*float _\d+ = )clamp\(\3, 0\.0, 1\.0\);$',
+    re.M)
+
+
+def pass_fixed16bias(text):
+    """When constant 927 == 2 (k_16_16 / k_16_16_16_16 target with ColorExpBias), clamp biased RGB and alpha outputs to [-32, 32] instead of [0, 1] alpha."""
+    if 'g_banjoTargetBiasRgb' not in text or 'g_banjoTargetBias & 63u' not in text:
+        return text
+    out = []
+    pos = 0
+    for m in re.finditer(r'g_banjoTargetBias & 63u;', text):
+        start = m.start()
+        if start < pos:
+            continue
+        end = len(text)
+        for marker in ('g_banjoOutputTrim', 'out_var_SV_Target'):
+            k = text.find(marker, start)
+            if k >= 0 and k < end:
+                end = k
+        nxt = text.find('g_banjoTargetBias & 63u;', m.end())
+        if nxt >= 0 and nxt < end:
+            end = nxt
+        sec = text[start:end]
+        sec = _F16_RGB_RE.sub(
+            lambda r: f'{r.group(1)}vec3 {r.group(2)} = (g_banjoTargetBiasRgb == 2u) ? clamp({r.group(3)}, vec3(-32.0), vec3(32.0)) : ({r.group(3)});',
+            sec, count=1)
+        if _F16_ALP1_RE.search(sec):
+            sec = _F16_ALP1_RE.sub(
+                r'\1clamp(\2, (g_banjoTargetBiasRgb == 2u) ? -32.0 : 0.0, (g_banjoTargetBiasRgb == 2u) ? 32.0 : 1.0);',
+                sec, count=1)
+        else:
+            sec = _F16_ALP2_RE.sub(
+                r'\1clamp(\3, (g_banjoTargetBiasRgb == 2u) ? -32.0 : 0.0, (g_banjoTargetBiasRgb == 2u) ? 32.0 : 1.0);',
+                sec, count=1)
+        out.append(text[pos:start])
+        out.append(sec)
+        pos = end
+    out.append(text[pos:])
+    return ''.join(out)
+
+
 PASSES = [
     ('scalecodes', pass_scalecodes),
     ('scale1', pass_scale1),
@@ -3214,6 +3285,8 @@ PASSES = [
     ('vskill', pass_vskill),  # vivapinata-nx (2026-11-03): last
     ('expwin', pass_expwin),  # sasrt-nx (2026-11-08): the fourth GPU round, constant 944
     ('expparts', pass_expparts),  # sasrt-nx (2026-11-09): an EXPERIMENT, constant 945 (0: as before)
+    ('logrsqabs', pass_logrsqabs),  # asura-nx: avoid NaN on negative log2/inversesqrt inputs
+    ('fixed16bias', pass_fixed16bias),  # asura-nx: fmt 5 ColorExpBias [-32, 32] clamp when 927 == 2
     ('clamp7e3', pass_clamp7e3),  # dishonored-nx (2026-10-31; port 106): constant 990, the last pixel pass
     ('invariant', pass_invariant),  # dishonored-nx (2026-10-30; port 100): vertex shaders, no constant
 ]
@@ -3225,7 +3298,7 @@ DEFAULT = ','.join(name for name, _ in PASSES if name not in ('scale1', 'fragsca
 # vivapinata-nx (2026-11-12): samplerk, plainfetch, fetchconv, onex and onexsize act on both stages (vertex shaders'
 # fetches through constant 975, render/draw.cpp SasrtPlainFetchMask's vs_entry).
 STAGE_OF = {'earlykill': 'frag', 'noearly': 'frag', 'facesign': 'frag', 'clipspec': 'vert', 'nofxaa': 'frag',
-            'vsepi': 'vert', 'expwin': 'vert', 'expparts': 'vert', 'stack3d': 'frag', 'fetchendian': 'vert', 'expfmt': 'vert', 'skinonce': 'vert', 'bonesel': 'vert', 'aw4': 'vert', 'lightbranch': 'frag', 'nullps': 'frag', 'gpr32': 'frag', 'earlyz': 'frag', 'txq': 'frag', 'alpha': 'frag', 'alphamask': 'frag', 'earlyhoist': 'frag', 'tess': 'vert', 'vsout': 'vert', 'vszero': 'vert', 'pszero': 'frag'}
+            'vsepi': 'vert', 'expwin': 'vert', 'expparts': 'vert', 'stack3d': 'frag', 'fetchendian': 'vert', 'expfmt': 'vert', 'skinonce': 'vert', 'bonesel': 'vert', 'aw4': 'vert', 'lightbranch': 'frag', 'nullps': 'frag', 'gpr32': 'frag', 'earlyz': 'frag', 'txq': 'frag', 'alpha': 'frag', 'alphamask': 'frag', 'earlyhoist': 'frag', 'tess': 'vert', 'vsout': 'vert', 'vszero': 'vert', 'pszero': 'frag', 'fixed16bias': 'frag'}
 STAGE_OF['invariant'] = 'vert'  # dishonored-nx (port 100)
 STAGE_OF['clamp7e3'] = 'frag'  # dishonored-nx (port 106)
 
