@@ -74,7 +74,7 @@ Episode 1 & 2) alongside your unpacked base game:
 3. Launch `asurawrath_nx.nro`:
    - On launch, a full-screen installer UI appears with a real-time **`%` progress bar**, live package/file extraction
      details, and a hint showing how to open the Settings / Debug Menu (`+` + `−`).
-   - Packages are extracted cleanly into `sdmc:/switch/asura-nx/user_data/0000000000000000/43430817/00000002/` (alongside
+   - Packages are extracted cleanly into `sdmc:/switch/asura-nx/asurawrath_nx/0000000000000000/43430817/00000002/` (alongside
      their `.header` metadata files).
    - Once each package finishes installing, the **raw source file in `Update/` or `dlc/` is automatically deleted** to
      free up SD card space, and subsequent launches skip the installer automatically.
