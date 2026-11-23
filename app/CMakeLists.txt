@@ -978,7 +978,7 @@ if(REXGLUE_PLATFORM_SWITCH)
     rexglue_switch_add_nro(renut
         NAME "${RENUT_GAME_NAME}"  # port 193: set once, above
         AUTHOR "Bánh Mì"
-        VERSION "1.0.0"
+        VERSION "1.0.1"
         ${RENUT_ICON_ARG})
 endif()
 

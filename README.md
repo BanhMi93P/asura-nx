@@ -22,7 +22,7 @@ It's not an emulator. The PowerPC code of the game's `default.xex` is statically
 
 ## How to install
 
-1. Download **`asura-nx-v1.0.0.zip`** from [Releases](https://github.com/BanhMi93P/asura-nx/releases) and extract it to
+1. Download **`asura-nx-v1.0.1.zip`** from [Releases](https://github.com/BanhMi93P/asura-nx/releases) and extract it to
    the root of your Switch SD card (`sdmc:/`), creating `sdmc:/switch/asura-nx/`.
 2. Copy your unpacked Xbox 360 base game files (`default.xex`, `BCGame/`, etc.) into
    `sdmc:/switch/asura-nx/game/` (both `game/` and `game_root/` are supported).
@@ -94,7 +94,7 @@ Use the tables below to verify that your release files and unpacked Xbox 360 inp
 
 | File | Size | SHA-256 | MD5 |
 | --- | --- | --- | --- |
-| `asurawrath_nx.nro` | `101,274,492 B` (`96.58 MiB`) | `30d1a093e9f8e3b4e18a8b57cf5fbce4978c5264bfb9e977d9ec319ae23799a6` | `3e66821ba42ad2b68ce7fc6efaeb76f3` |
+| `asurawrath_nx.nro` | `101,270,396 B` (`96.58 MiB`) | `4205d2a90a71bee3abb4a418ec9e6c9fc421c2946b947832f98b770390abdb18` | `7d787ce522bc7731e5c54884ad5ad8fb` |
 | `asurawrath_nx.toml` | `5,839 B` | `e50285da795908a96f2327d707aca587034d8296995d791e2a396883db9c00ae` | `983ea4a0607b16216773ef4c2cf206e7` |
 | `renut.toml` | `5,839 B` | `e50285da795908a96f2327d707aca587034d8296995d791e2a396883db9c00ae` | `983ea4a0607b16216773ef4c2cf206e7` |
 | `deko3d_glsl.bin` | `74,782,256 B` (`71.32 MiB`) | `f32d3452cb9001e56612a99909d1eb626530ddf35807f75a3582daf1ee01a44d` | `05119e781e14cf0046f83d6cc0bb8724` |
