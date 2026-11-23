@@ -15,19 +15,21 @@ It's not an emulator. The PowerPC code of the game's `default.xex` is statically
 
 > [!NOTE]
 > You need your own legally obtained copy of the Xbox 360 game (`Title ID: 43430817`): the extracted/unpacked disc files
-> (`default.xex` and the `BCGame/` directory). Title Update and DLC packages are **completely optional** — the base game
+> (`default.xex` and the `BCGame/` directory). **Xbox 360 Title Updates are already integrated into this port — new
+> users do NOT need to download or install any Title Update.** DLC packages are **completely optional** — the base game
 > works without them. This repository contains no original game assets or copyrighted binaries.
 
 ---
 
 ## How to install
 
-1. Download **`asura-nx-v1.0.1.zip`** from [Releases](https://github.com/BanhMi93P/asura-nx/releases) and extract it to
+1. Download **`asura-nx-v1.0.2.zip`** from [Releases](https://github.com/BanhMi93P/asura-nx/releases) and extract it to
    the root of your Switch SD card (`sdmc:/`), creating `sdmc:/switch/asura-nx/`.
 2. Copy your unpacked Xbox 360 base game files (`default.xex`, `BCGame/`, etc.) into
    `sdmc:/switch/asura-nx/game/` (both `game/` and `game_root/` are supported).
-3. *(Optional)* To use Xbox 360 Title Update or DLCs with your unpacked game, place the raw packages in `Update/` (or
-   `update/`) and `dlc/` (see [Optional Title Update & DLC](#optional-title-update--dlc-automatic-installer)).
+3. *(Optional)* To use Xbox 360 DLCs with your unpacked game, place the raw DLC STFS packages in `dlc/` (see
+   [Optional DLC (Automatic Installer)](#optional-dlc-automatic-installer)). You do **not** need to install any Title
+   Update.
 
 Your `asura-nx` folder on the SD card should look like this:
 
@@ -43,7 +45,6 @@ Your `asura-nx` folder on the SD card should look like this:
     default.xex
     BCGame/
     ...
-  Update/                   (optional: drop Xbox 360 Title Update file here; lowercase update/ also works)
   dlc/                      (optional: drop Xbox 360 DLC STFS packages here)
 ```
 
@@ -61,23 +62,24 @@ Your `asura-nx` folder on the SD card should look like this:
 
 ---
 
-## Optional Title Update & DLC (Automatic Installer)
+## Optional DLC (Automatic Installer)
 
-You do **not** need Title Update or DLC files to play *Asura's Wrath* — if both `Update/` and `dlc/` are left empty,
-the installer screen is skipped automatically and the game boots straight to the launch intro.
+You do **not** need Title Update or DLC files to play *Asura's Wrath*. **Title Updates are already integrated into this
+port** — new users should **not** install any `TU_*` Title Update file. If you previously installed a Title Update under
+`v1.0.0`/`v1.0.1` (`TU_*` inside `00000002/`), launching **`v1.0.2`** automatically removes those legacy Title Update
+files/folders so all DLCs mount cleanly without manual cleanup.
 
-If you want to install Xbox 360 Title Update and DLC packs (Episode Pack: Part IV, Episode 11.5, Episode 15.5, Lost
-Episode 1 & 2) alongside your unpacked base game:
+If you want to install Xbox 360 DLC packs (Episode Pack: Part IV, Episode 11.5, Episode 15.5, Lost Episode 1 & 2)
+alongside your unpacked base game:
 
-1. Copy the raw Xbox 360 Title Update file (`TU_...`) into `sdmc:/switch/asura-nx/Update/` (or `update/`).
-2. Copy the raw Xbox 360 DLC STFS container files into `sdmc:/switch/asura-nx/dlc/`.
-3. Launch `asurawrath_nx.nro`:
+1. Copy the raw Xbox 360 DLC STFS container files into `sdmc:/switch/asura-nx/dlc/` (leave empty to boot directly).
+2. Launch `asurawrath_nx.nro`:
    - On launch, a full-screen installer UI appears with a real-time **`%` progress bar**, live package/file extraction
      details, and a hint showing how to open the Settings / Debug Menu (`+` + `−`).
-   - Packages are extracted cleanly into `sdmc:/switch/asura-nx/asurawrath_nx/0000000000000000/43430817/00000002/` (alongside
-     their `.header` metadata files).
-   - Once each package finishes installing, the **raw source file in `Update/` or `dlc/` is automatically deleted** to
-     free up SD card space, and subsequent launches skip the installer automatically.
+   - Packages are extracted cleanly into `sdmc:/switch/asura-nx/asurawrath_nx/0000000000000000/43430817/00000002/`
+     (alongside their `.header` metadata files).
+   - Once each package finishes installing, the **raw source file in `dlc/` is automatically deleted** to free up SD
+     card space, and subsequent launches skip the installer automatically.
 
 **Launch Intro Gate:** Every time the game starts, a 6.5-second looping intro animation plays — mash **`B` 20 times**
 to break into the game!
@@ -94,7 +96,7 @@ Use the tables below to verify that your release files and unpacked Xbox 360 inp
 
 | File | Size | SHA-256 | MD5 |
 | --- | --- | --- | --- |
-| `asurawrath_nx.nro` | `101,270,396 B` (`96.58 MiB`) | `4205d2a90a71bee3abb4a418ec9e6c9fc421c2946b947832f98b770390abdb18` | `7d787ce522bc7731e5c54884ad5ad8fb` |
+| `asurawrath_nx.nro` | `101,311,356 B` (`96.62 MiB`) | `b105920901d25c235755e54eb1c50a6741e40186bf4bff4a28b8225e2b3a6e1b` | `cf70f9f1134abae7a56e171914e857f7` |
 | `asurawrath_nx.toml` | `5,839 B` | `e50285da795908a96f2327d707aca587034d8296995d791e2a396883db9c00ae` | `983ea4a0607b16216773ef4c2cf206e7` |
 | `renut.toml` | `5,839 B` | `e50285da795908a96f2327d707aca587034d8296995d791e2a396883db9c00ae` | `983ea4a0607b16216773ef4c2cf206e7` |
 | `deko3d_glsl.bin` | `74,782,256 B` (`71.32 MiB`) | `f32d3452cb9001e56612a99909d1eb626530ddf35807f75a3582daf1ee01a44d` | `05119e781e14cf0046f83d6cc0bb8724` |
@@ -113,13 +115,12 @@ Use the tables below to verify that your release files and unpacked Xbox 360 inp
 
 </div>
 
-### Tested Optional Title Update (`Update/`) & DLC (`dlc/`) Packages
+### Tested Optional DLC (`dlc/`) Packages
 
 <div align="center">
 
 | Folder / File Name | Content Name | Size | SHA-256 | MD5 |
 | --- | --- | --- | --- | --- |
-| `Update/TU_11K620N_000000K000000.0000000000085` | ASURA'S WRATH Title Update | `626,688 B` (`0.60 MiB`) | `43914d513122c49afa70f051143f4b3b89279e5d9ef05f2ec73abc604c4dc0a0` | `f2b761e5eca86a0fe192ace09ee0774b` |
 | `dlc/78E95E38A274CA2033EB0517828152A3038C11C943` | Episode Pack: Part IV | `1,769,050,112 B` (`1,687.10 MiB`) | `543e5273cf788cd9c5e47dcc3d629eb8a88f6996f6f46c2269bba800742be787` | `8b15a2ce17dc79d84ab2a5af27a45138` |
 | `dlc/8A6811EC2255FE171FAF9E4372B23B1B0581E4CA43` | Episode 11.5 | `1,163,853,824 B` (`1,109.94 MiB`) | `17c6b0f27d9c6d67c6693dd3712f3fb2d9bc2837d226c418302b3141b8c22ae2` | `c0e7f31101a5d7e8345fd5266ec66ce3` |
 | `dlc/981ED33639F0A6275BA34BDD2E3D276C16F94A6D43` | Lost Episode 1 | `164,962,304 B` (`157.32 MiB`) | `3a1315c5cbf102da29b9a55ff591be36cfebb2c64b5eade9b116b59eed24e089` | `2a4517ec508098a7c4ef925ba26fee6e` |
@@ -206,10 +207,10 @@ Community guides:
 
 ## How it works
 
-- **Static recompilation, not emulation.** [ReXGlue](https://github.com/rexglue/rexglue-sdk) translates PowerPC functions from `default.xex` to C++, compiled directly to AArch64 machine code with LTO, localized hot-function copies (`app/src/cpu/hot/localized_bulk.txt`), and a native ARM64 NEON hook for the XAudio2 Voice State-Variable Biquad filter (`sub_829E1DF0`).
-- **Native deko3d UE3 renderer.** Xbox 360 D3D9 command streams execute natively on the Switch Maxwell GPU via Renut's renderer and [plume](https://github.com/renderbag/plume)'s deko3d backend, with UE3 Xenos `7e3` EDRAM (`2_10_10_10_AS_16_16_16_16`), shadow depth resolve fixes, `asura_sync_view_skip_overwrite`, and post-composite SMAA (`banjo_renut_smaa_after_ps`).
+- **Static recompilation, not emulation.** [ReXGlue](https://github.com/rexglue/rexglue-sdk) translates PowerPC functions from `default.xex` to C++, compiled directly to AArch64 machine code with LTO, localized hot-function copies (`app/src/cpu/hot/localized_bulk.txt`), and native ARM64 NEON implementations for XAudio2 Biquad filtering (`sub_829E1DF0`), PhysX PGS contact/friction solvers (`sub_82D99518`, `sub_82D9A3F8`, `sub_82D9AFE8`), and UE3 skeletal rotation track decoding (`sub_822AF870`).
+- **Native deko3d UE3 renderer.** Xbox 360 D3D9 command streams execute natively on the Switch Maxwell GPU via Renut's renderer and [plume](https://github.com/renderbag/plume)'s deko3d backend, with UE3 Xenos `7e3` EDRAM (`2_10_10_10_AS_16_16_16_16`), shadow depth resolve & dirty-rect clear/resolve optimizations (`asura_shadow_dirty_rect`), `SyncColorViewBeforeDrawLocked` distortion ping-pong skipping (`asura_sync_view_skip_overwrite`), and post-composite SMAA (`banjo_renut_smaa_after_ps`).
 - **Prebuilt 180k shader variant cache.** **26,170** translated shaders (`deko3d_glsl.bin`) and **180,595** precompiled Maxwell DKSH binaries (`deko3d_shaders.bin` + `.idx`) including `sasrt_gpu_one_x` (bit-31) variants prevent in-game shader hitching.
-- **Built-in Switch UX.** Embedded STFS Update/DLC installer with real-time progress bar & auto-cleanup (`asura_startup_overlay.cpp`), 20x `B`-mash launch intro, UTF-8 NACP metadata, and live `+` + `−` settings/debug overlay.
+- **Built-in Switch UX.** Embedded STFS DLC installer with real-time progress bar, legacy Title Update auto-cleanup & raw file deletion (`asura_startup_overlay.cpp`), 20x `B`-mash launch intro, UTF-8 NACP metadata, and live `+` + `−` settings/debug overlay.
 
 ---
 
@@ -234,7 +235,7 @@ Requires Windows, LLVM/Clang and Visual Studio Build Tools for host tooling; dev
 ## Credits
 
 - **CyberConnect2 and Capcom** — creators of *Asura's Wrath* (2012). This is an unofficial, fan-made port with no affiliation.
-- **[BanhMi93P](https://github.com/BanhMi93P)** — Asura's Wrath Nintendo Switch port (`asura-nx`), UE3 Deko3D EDRAM/shadow pipeline fixes, XAudio2 native ARM64 filter, 180,595 DKSH shader variant cache, startup Update/DLC installer & intro overlay.
+- **[BanhMi93P](https://github.com/BanhMi93P)** — Asura's Wrath Nintendo Switch port (`asura-nx`), UE3 Deko3D EDRAM/shadow pipeline fixes, XAudio2/PhysX/UE3 animation native ARM64 NEON hooks, 180,595 DKSH shader variant cache, startup DLC installer & intro overlay.
 - **[ChanseyIsTheBest](https://github.com/ChanseyIsTheBest/renut_nx_ultimate_base)** — `renut_nx_ultimate_base` and sibling Xbox 360 Switch ports.
 - **[Tom Clay](https://github.com/rexglue/rexglue-sdk)** — the ReXGlue SDK, built on **[Xenia](https://xenia.jp)**.
 - **[masterspike52](https://github.com/masterspike52/reNut)** — reNut's Direct3D-level renderer.

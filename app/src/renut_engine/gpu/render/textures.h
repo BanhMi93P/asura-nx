@@ -158,6 +158,9 @@ struct HostTexture {
   // before; skipped, its last resolve was left out (the last_* fields above say from where and what).
   bool depth_read = false;
   bool depth_skipped = false;
+  // Guest-pixel region modified by the last float-only ResolveDepth from a tracked clear=1.0 depth target.
+  bool depth_resolved_clean = false;
+  int32_t depth_resolved_x1 = 0, depth_resolved_y1 = 0, depth_resolved_x2 = 0, depth_resolved_y2 = 0;
   // A texture over a depth resolve's memory: the resolve its words were
   // copied from last.
   uint64_t copied_resolve = 0;

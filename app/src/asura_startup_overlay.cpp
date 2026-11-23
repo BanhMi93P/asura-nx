@@ -157,6 +157,124 @@ bool WriteContentHeaderFileDirect(const fs::path& user_data_root,
   return ok;
 }
 
+bool StartsWithTU(const std::string& name) {
+  return name.size() >= 3 && (name[0] == 'T' || name[0] == 't') &&
+         (name[1] == 'U' || name[1] == 'u') && name[2] == '_';
+}
+
+void CleanupLegacyTitleUpdate(const fs::path& exe_dir, const fs::path& user_dir) {
+  std::error_code ec;
+  std::vector<fs::path> user_roots = {
+      user_dir,
+      exe_dir / "asurawrath_nx",
+      exe_dir / "user_data",
+#if defined(__SWITCH__)
+      fs::path("/switch/asura-nx/asurawrath_nx"),
+      fs::path("/switch/asura-nx/user_data"),
+      fs::path("/switch/asura_wrath_recomp/asurawrath_nx"),
+#endif
+  };
+
+  std::vector<std::string> seen_roots;
+  for (const auto& root : user_roots) {
+    if (root.empty() || !fs::is_directory(root, ec)) {
+      ec.clear();
+      continue;
+    }
+    fs::path canon = fs::weakly_canonical(root, ec);
+    std::string key = rex::path_to_utf8(ec ? root.lexically_normal() : canon);
+    ec.clear();
+    if (std::find(seen_roots.begin(), seen_roots.end(), key) != seen_roots.end()) {
+      continue;
+    }
+    seen_roots.push_back(key);
+
+    const fs::path content_dir = root / kProfileFolder / kTitleFolder / kContentTypeFolder;
+    if (fs::is_directory(content_dir, ec)) {
+      std::vector<fs::path> to_remove;
+      for (fs::directory_iterator it(content_dir, ec), end; it != end && !ec; it.increment(ec)) {
+        const std::string fname = rex::path_to_utf8(it->path().filename());
+        if (StartsWithTU(fname)) {
+          to_remove.push_back(it->path());
+        }
+      }
+      ec.clear();
+      for (const auto& p : to_remove) {
+        fs::remove_all(p, ec);
+        if (ec) {
+          REXLOG_WARN("[Installer] Failed to remove legacy Title Update content {}: {}",
+                      rex::path_to_utf8(p), ec.message());
+          ec.clear();
+        } else {
+          REXLOG_INFO("[Installer] Auto-removed legacy Title Update content: {}",
+                      rex::path_to_utf8(p));
+        }
+      }
+    }
+    ec.clear();
+
+    const fs::path headers_dir =
+        root / kProfileFolder / kTitleFolder / "Headers" / kContentTypeFolder;
+    if (fs::is_directory(headers_dir, ec)) {
+      std::vector<fs::path> to_remove;
+      for (fs::directory_iterator it(headers_dir, ec), end; it != end && !ec; it.increment(ec)) {
+        const std::string fname = rex::path_to_utf8(it->path().filename());
+        if (StartsWithTU(fname)) {
+          to_remove.push_back(it->path());
+        }
+      }
+      ec.clear();
+      for (const auto& p : to_remove) {
+        fs::remove_all(p, ec);
+        if (ec) {
+          REXLOG_WARN("[Installer] Failed to remove legacy Title Update header {}: {}",
+                      rex::path_to_utf8(p), ec.message());
+          ec.clear();
+        } else {
+          REXLOG_INFO("[Installer] Auto-removed legacy Title Update header: {}",
+                      rex::path_to_utf8(p));
+        }
+      }
+    }
+    ec.clear();
+  }
+
+  std::vector<fs::path> update_dirs = {
+      exe_dir / "Update",
+      exe_dir / "update",
+      user_dir / "Update",
+      user_dir / "update",
+#if defined(__SWITCH__)
+      fs::path("/switch/asura-nx/Update"),
+      fs::path("/switch/asura-nx/update"),
+#endif
+  };
+  for (const auto& upd_dir : update_dirs) {
+    if (!fs::is_directory(upd_dir, ec)) {
+      ec.clear();
+      continue;
+    }
+    std::vector<fs::path> to_remove;
+    for (fs::directory_iterator it(upd_dir, ec), end; it != end && !ec; it.increment(ec)) {
+      if (!it->is_regular_file(ec)) {
+        ec.clear();
+        continue;
+      }
+      const std::string fname = rex::path_to_utf8(it->path().filename());
+      if (fname == "installed.txt" || StartsWithTU(fname)) {
+        to_remove.push_back(it->path());
+      }
+    }
+    ec.clear();
+    for (const auto& p : to_remove) {
+      fs::remove(p, ec);
+      ec.clear();
+    }
+    fs::remove(upd_dir, ec);
+    ec.clear();
+  }
+}
+
 }  // namespace
 
 AsuraStartupDialog::AsuraStartupDialog(rex::ui::ImGuiDrawer* drawer,
@@ -224,9 +342,9 @@ void AsuraStartupDialog::ScanQueuedPackages() {
   const fs::path exe_dir = SanitizePath(rex::filesystem::GetExecutableFolder());
   const fs::path user_dir = paths_.user_data_root.empty() ? exe_dir : paths_.user_data_root;
 
-  // Ensure default Update and dlc directories exist next to executable for release users.
-  fs::create_directories(exe_dir / "Update", ec);
-  ec.clear();
+  CleanupLegacyTitleUpdate(exe_dir, user_dir);
+
+  // Ensure default dlc directory exists next to executable for release users.
   fs::create_directories(exe_dir / "dlc", ec);
   ec.clear();
 
@@ -235,17 +353,13 @@ void AsuraStartupDialog::ScanQueuedPackages() {
     bool is_update;
   };
   std::vector<Candidate> candidates = {
-      {exe_dir / "Update", true},
-      {exe_dir / "update", true},
       {exe_dir / "dlc", false},
       {exe_dir / "DLC", false},
   };
   if (user_dir != exe_dir) {
-    candidates.push_back({user_dir / "Update", true});
     candidates.push_back({user_dir / "dlc", false});
   }
 #if defined(__SWITCH__)
-  candidates.push_back({fs::path("/switch/asura-nx/Update"), true});
   candidates.push_back({fs::path("/switch/asura-nx/dlc"), false});
 #endif
 
@@ -336,7 +450,7 @@ void AsuraStartupDialog::InstallWorker() {
 
   {
     std::lock_guard lock(status_mtx_);
-    status_title_ = "Scanning Updates & DLC...";
+    status_title_ = "Scanning DLC Packages...";
     status_detail_ = "Inspecting packages before extraction...";
   }
 
@@ -360,6 +474,12 @@ void AsuraStartupDialog::InstallWorker() {
       if (pkg.title_id != 0 && pkg.title_id != kAsuraTitleId) {
         REXLOG_WARN("[Installer] Skipping {} ({}) for foreign title {:08X}",
                     pkg.filename, pkg.display_name, pkg.title_id);
+        pkg.payload_bytes = 0;
+        continue;
+      }
+      if (pkg.content_type != 0x00000002u) {
+        REXLOG_WARN("[Installer] Skipping non-DLC package {} ({}, type {:08X}) - Title Updates are already integrated",
+                    pkg.filename, pkg.display_name, pkg.content_type);
         pkg.payload_bytes = 0;
         continue;
       }
@@ -608,7 +728,7 @@ void AsuraStartupDialog::InstallWorker() {
   bytes_done_.store(bytes_total_.load(std::memory_order_relaxed), std::memory_order_release);
   {
     std::lock_guard lock(status_mtx_);
-    status_title_ = "Update & DLC Installation Complete!";
+    status_title_ = "DLC Installation Complete!";
     status_detail_ = "All packages installed and raw files cleaned up.";
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(450));

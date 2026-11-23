@@ -9,7 +9,6 @@
 82A10170 104 console samples, 120 instructions, 2 direct callees
 82B88ED0 67 console samples, 268 instructions, 2 direct callees
 8258EBF8 66 console samples, 158 instructions, 5 direct callees
-828CB638 29 console samples, 156 instructions, 4 direct callees
 829BF658 24 console samples, 254 instructions, 5 direct callees
 829BFA50 13 console samples, 242 instructions, 0 direct callees
 82A32C58 12 console samples, 72 instructions, 3 direct callees
@@ -37,7 +36,6 @@
 82A3F838 5 console samples, 148 instructions, 5 direct callees
 8261B8C8 5 console samples, 250 instructions, 6 direct callees
 829BF248 5 console samples, 260 instructions, 2 direct callees
-82D99518 5 console samples, 110 instructions, 2 direct callees
 8224D270 5 console samples, 158 instructions, 4 direct callees
 82B545F8 5 console samples, 100 instructions, 0 direct callees
 823F2708 5 console samples, 586 instructions, 5 direct callees
@@ -61,7 +59,6 @@
 829BF060 5 console samples, 122 instructions, 0 direct callees
 82506EA0 4 console samples, 1370 instructions, 25 direct callees
 8222E230 4 console samples, 56 instructions, 0 direct callees
-822AF870 4 console samples, 666 instructions, 6 direct callees
 829CCA70 4 console samples, 316 instructions, 2 direct callees
 8223A338 3 console samples, 66 instructions, 3 direct callees
 8225D4A0 3 console samples, 42 instructions, 0 direct callees
@@ -110,7 +107,6 @@
 82C70940 2 console samples, 60 instructions, 1 direct callees
 8225D548 2 console samples, 42 instructions, 0 direct callees
 823437A0 2 console samples, 50 instructions, 0 direct callees
-82D9AFE8 2 console samples, 264 instructions, 1 direct callees
 823CFFD8 2 console samples, 774 instructions, 5 direct callees
 826B4820 2 console samples, 46 instructions, 0 direct callees
 82975128 2 console samples, 1354 instructions, 11 direct callees
@@ -136,7 +132,6 @@
 8224E178 178 banjo_profiler samples, 98 instructions, 5 direct callees
 82693510 166 banjo_profiler samples, 876 instructions, 9 direct callees
 828CDD20 163 banjo_profiler samples, 350 instructions, 6 direct callees
-82D9A3F8 161 banjo_profiler samples, 146 instructions, 0 direct callees
 829BACC0 156 banjo_profiler samples, 2 instructions, 1 direct callees
 82D7D360 140 banjo_profiler samples, 238 instructions, 3 direct callees
 827425D8 137 banjo_profiler samples, 26 instructions, 0 direct callees

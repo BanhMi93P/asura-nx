@@ -89,6 +89,7 @@ REXCVAR_DECLARE(double, renut_gpu_profile);
 REXCVAR_DECLARE(bool, asura_char_shadows);
 REXCVAR_DECLARE(bool, asura_env_shadows);
 REXCVAR_DECLARE(bool, asura_sync_view_skip_overwrite);
+REXCVAR_DECLARE(bool, asura_shadow_dirty_rect);
 
 // banjo-nx (2026-10-17, a diagnostic for the deko3d renderer's missing river
 // water): draws that read memexport results as vertices take them through the
@@ -2779,6 +2780,33 @@ plume::RenderRect ScaleRect(const plume::RenderRect &rect, RenderScale scale) {
                            scale.Coord(rect.right), scale.Coord(rect.bottom));
 }
 
+void NoteDepthDirtyRect(HostSurface *d, const plume::RenderRect &host_scissor) {
+  if (!d || !d->depth_dirty_tracked)
+    return;
+  const int32_t w = int32_t(d->width);
+  const int32_t h = int32_t(d->height);
+  const int32_t hw = int32_t(d->scale.Size(d->width));
+  const int32_t hh = int32_t(d->scale.Size(d->height));
+  if (w <= 0 || h <= 0 || hw <= 0 || hh <= 0)
+    return;
+  const int32_t hl = std::clamp(host_scissor.left, 0, hw);
+  const int32_t ht = std::clamp(host_scissor.top, 0, hh);
+  const int32_t hr = std::clamp(host_scissor.right, 0, hw);
+  const int32_t hb = std::clamp(host_scissor.bottom, 0, hh);
+  if (hr <= hl || hb <= ht)
+    return;
+  const int32_t gx1 = std::max<int32_t>(0, int32_t((int64_t(hl) * w) / hw) - 2);
+  const int32_t gy1 = std::max<int32_t>(0, int32_t((int64_t(ht) * h) / hh) - 2);
+  const int32_t gx2 =
+      std::min<int32_t>(w, int32_t((int64_t(hr) * w + hw - 1) / hw) + 2);
+  const int32_t gy2 =
+      std::min<int32_t>(h, int32_t((int64_t(hb) * h + hh - 1) / hh) + 2);
+  d->depth_dirty_x1 = std::min(d->depth_dirty_x1, gx1);
+  d->depth_dirty_y1 = std::min(d->depth_dirty_y1, gy1);
+  d->depth_dirty_x2 = std::max(d->depth_dirty_x2, gx2);
+  d->depth_dirty_y2 = std::max(d->depth_dirty_y2, gy2);
+}
+
 bool RestoreDepthFromColorLocked(
     HostSurface *depth, HostSurface *color); // sasrt-nx (2026-10-20): below
 
@@ -3180,18 +3208,26 @@ void SyncColorViewBeforeDrawLocked(
     const plume::RenderRect *sc = nullptr, u32 elem_cnt = 0u) {
   if (!t.color_count || !color_mask)
     return;
-  const bool allow_skip =
-      REXCVAR_GET(asura_sync_view_skip_overwrite) &&
-      (ps_hash == 0xBC4654D7429A2FF0ull || ps_hash == 0x3E71AAA08AC3C717ull) &&
-      !(depth_control & 3u) && !alpha_to_coverage &&
+  const bool skip_enabled =
+      REXCVAR_GET(asura_sync_view_skip_overwrite) && !alpha_to_coverage &&
       (alpha_func == 0u || alpha_func == 8u) && elem_cnt <= 6u && vp && sc;
+  const bool allow_skip =
+      skip_enabled && !(depth_control & 3u) &&
+      (CompositePs(ps_hash) ||
+       ps_hash == 0xBC4654D7429A2FF0ull ||
+       ps_hash == 0x6094BE6A5EFAD454ull ||
+       ps_hash == 0x82C1EB5CB44C4911ull);
+  const bool allow_distort_init_skip =
+      skip_enabled && ps_hash == 0x193659623DA06601ull;
+  const bool allow_distort_apply_skip =
+      skip_enabled && ps_hash == 0x0F4199CD019BC4E0ull;
   for (u32 i = 0; i < t.color_count; ++i) {
     HostSurface *target = t.colors[i];
     if (!target || target->depth || !((color_mask >> (4 * i)) & 0xF))
       continue;
     if (g_blur_color_write_last <= target->write_seq)
       continue;
-    if (allow_skip) {
+    if (allow_skip || allow_distort_init_skip || allow_distort_apply_skip) {
       const u32 mask = (color_mask >> (4 * i)) & 0xFu;
       const bool blended =
           blend_control && (blend_control[i] & 0x1FFF1FFFu) != 0x00010001u;
@@ -3207,9 +3243,59 @@ void SyncColorViewBeforeDrawLocked(
       const bool full_sc =
           sc->left <= 1 && sc->top <= 1 &&
           sc->right >= int32_t(hw) - 1 && sc->bottom >= int32_t(hh) - 1;
-      if (!blended && (mask & every) == every && full_vp && full_sc) {
+      if (allow_skip && !blended && (mask & every) == every && full_vp &&
+          full_sc) {
         target->synced_view = nullptr;
         continue;
+      }
+      if (allow_distort_init_skip && ef == 0u && !blended &&
+          (mask & 0xFu) == 0xFu && full_vp && full_sc) {
+        // UE3 distortion setup quad into 06(8888): Z-pass pixels overwrite RGBA,
+        // Z-fail pixels are masked out by stencil and never read bit-casted 36.
+        target->synced_view = nullptr;
+        continue;
+      }
+      if (allow_distort_apply_skip && ef == 2u && !blended &&
+          (mask & 0xFu) == 0xFu && full_vp && full_sc) {
+        static std::vector<HostSurface *> check_aliases;
+        ColorAliasesLocked(target, check_aliases);
+        bool only_8888_newer = true;
+        for (HostSurface *alias : check_aliases) {
+          if (alias->write_seq > target->write_seq) {
+            const u32 aef = (u32(alias->color_info_word) >> 16) & 0xFu;
+            if (aef != 0u && aef != 1u) {
+              only_8888_newer = false;
+              break;
+            }
+          }
+        }
+        if (only_8888_newer) {
+          target->synced_view = nullptr;
+          continue;
+        }
+      }
+    }
+    if (REXCVAR_GET(renut_gpu_profile) > 0.0) [[unlikely]] {
+      static u64 logged_ps[16] = {};
+      static u32 logged_count = 0;
+      bool seen = false;
+      for (u32 k = 0; k < logged_count; ++k) {
+        if (logged_ps[k] == ps_hash) {
+          seen = true;
+          break;
+        }
+      }
+      if (!seen && logged_count < 16u) {
+        logged_ps[logged_count++] = ps_hash;
+        const u32 mask = (color_mask >> (4 * i)) & 0xFu;
+        const u32 blend = blend_control ? blend_control[i] : 0u;
+        RGPU_INFO("[asura] SyncColorViewBeforeDraw fired: ps={:016X} "
+                  "dst={}x{}(fmt={}) cnt={} mask={:X} blend={:08X} dc={:08X} "
+                  "vp=({:.0f},{:.0f},{:.0f},{:.0f})",
+                  ps_hash, target->width, target->height,
+                  (u32(target->color_info_word) >> 16) & 0xFu, elem_cnt, mask,
+                  blend, depth_control, vp ? vp->x : -1.0f, vp ? vp->y : -1.0f,
+                  vp ? vp->width : 0.0f, vp ? vp->height : 0.0f);
       }
     }
     SyncColorViewLocked(target, true);
@@ -14735,6 +14821,8 @@ int FastDrawLocked(const u8 *device_state, const DrawCall &call,
       ++targets.depth->writes;
       targets.depth->write_seq =
           ++g_surface_write_seq; // sasrt-nx: the EDRAM depth restore
+      if ((dc & 2) && (dc & 4))
+        NoteDepthDirtyRect(targets.depth, f.viewport.scissor);
     }
     if (dc &
         1) { // sasrt-nx's SasrtWarnStencilOnD32f inside it (rr6-nx, 2026-11-09)
@@ -17529,6 +17617,8 @@ bool DrawStateLocked(const u8 *device_state, const DrawCall &call,
       ++targets.depth->writes;
       targets.depth->write_seq =
           ++g_surface_write_seq; // sasrt-nx: the EDRAM depth restore
+      if (depth_writes)
+        NoteDepthDirtyRect(targets.depth, viewport.scissor);
     }
     if (dc &
         1) { // sasrt-nx's SasrtWarnStencilOnD32f inside it (rr6-nx, 2026-11-09)
@@ -18937,10 +19027,37 @@ void ClearTargets(const Targets &t, u32 flags, const plume::RenderRect &rect,
     ++d->writes;                          // banjo-nx (banjo_renut_resolve_skip)
     d->write_seq = ++g_surface_write_seq; // sasrt-nx: the EDRAM depth restore
     g_clears_whole += is_whole;
-    if (repeat)
+    if (repeat) {
       ++g_clear_repeats;
-    else
+    } else if (zc && !sc && is_whole && depth == 1.0f &&
+               REXCVAR_GET(asura_shadow_dirty_rect)) {
+      if (d->depth_dirty_tracked && d->clear_generation == d->generation) {
+        if (d->depth_dirty_x2 <= d->depth_dirty_x1 ||
+            d->depth_dirty_y2 <= d->depth_dirty_y1) {
+          ++g_clear_repeats;
+        } else {
+          const int32_t gx1 = std::max<int32_t>(0, d->depth_dirty_x1 - 4);
+          const int32_t gy1 = std::max<int32_t>(0, d->depth_dirty_y1 - 4);
+          const int32_t gx2 =
+              std::min<int32_t>(int32_t(d->width), d->depth_dirty_x2 + 4);
+          const int32_t gy2 =
+              std::min<int32_t>(int32_t(d->height), d->depth_dirty_y2 + 4);
+          const plume::RenderRect dirty_host =
+              ScaleRect(plume::RenderRect(gx1, gy1, gx2, gy2), t.scale);
+          cmd->clearDepthStencil(zc, sc, depth, stencil & 0xFF, &dirty_host, 1);
+        }
+      } else {
+        cmd->clearDepthStencil(zc, sc, depth, stencil & 0xFF, &host_rect, 1);
+      }
+      d->depth_dirty_tracked = true;
+      d->depth_dirty_x1 = INT32_MAX;
+      d->depth_dirty_y1 = INT32_MAX;
+      d->depth_dirty_x2 = 0;
+      d->depth_dirty_y2 = 0;
+    } else {
       cmd->clearDepthStencil(zc, sc, depth, stencil & 0xFF, &host_rect, 1);
+      d->depth_dirty_tracked = false;
+    }
     // banjo-nx (banjo_renut_clear_repeat): what the target holds now; a plane
     // this clear left alone keeps what was known of it only while the image and
     // its writes are the ones that knowledge was of.
@@ -19103,10 +19220,41 @@ bool ResolveDepth(HostSurface *surface, HostTexture *dest, const ClearRect &src,
   // Pixel coordinates are destination texels.
   cmd->setViewports(plume::RenderViewport(0.0f, 0.0f, float(dest->alloc_width),
                                           float(dest->alloc_height)));
-  cmd->setScissors(
-      ScaleRect(plume::RenderRect(dest_x, dest_y, dest_x + (src.x2 - src.x1),
-                                  dest_y + (src.y2 - src.y1)),
-                surface->scale));
+  const bool whole_same =
+      !words && REXCVAR_GET(asura_shadow_dirty_rect) && !dest->handed_from &&
+      surface->depth_dirty_tracked &&
+      surface->clear_generation == surface->generation && dest_x == 0 &&
+      dest_y == 0 && src.x1 == 0 && src.y1 == 0 &&
+      src.x2 == int32_t(surface->width) && src.y2 == int32_t(surface->height) &&
+      dest->width == surface->width && dest->height == surface->height;
+  plume::RenderRect scissor_rect(dest_x, dest_y, dest_x + (src.x2 - src.x1),
+                                 dest_y + (src.y2 - src.y1));
+  if (whole_same && dest->depth_resolved_clean) {
+    int32_t ux1 = INT32_MAX, uy1 = INT32_MAX, ux2 = 0, uy2 = 0;
+    if (dest->depth_resolved_x2 > dest->depth_resolved_x1 &&
+        dest->depth_resolved_y2 > dest->depth_resolved_y1) {
+      ux1 = std::min(ux1, dest->depth_resolved_x1);
+      uy1 = std::min(uy1, dest->depth_resolved_y1);
+      ux2 = std::max(ux2, dest->depth_resolved_x2);
+      uy2 = std::max(uy2, dest->depth_resolved_y2);
+    }
+    if (surface->depth_dirty_x2 > surface->depth_dirty_x1 &&
+        surface->depth_dirty_y2 > surface->depth_dirty_y1) {
+      ux1 = std::min(ux1, surface->depth_dirty_x1);
+      uy1 = std::min(uy1, surface->depth_dirty_y1);
+      ux2 = std::max(ux2, surface->depth_dirty_x2);
+      uy2 = std::max(uy2, surface->depth_dirty_y2);
+    }
+    if (ux2 > ux1 && uy2 > uy1) {
+      scissor_rect.left = std::max<int32_t>(0, ux1 - 8);
+      scissor_rect.top = std::max<int32_t>(0, uy1 - 8);
+      scissor_rect.right = std::min<int32_t>(int32_t(dest->width), ux2 + 8);
+      scissor_rect.bottom = std::min<int32_t>(int32_t(dest->height), uy2 + 8);
+    } else {
+      scissor_rect = plume::RenderRect(0, 0, 0, 0);
+    }
+  }
+  cmd->setScissors(ScaleRect(scissor_rect, surface->scale));
   cmd->setGraphicsPipelineLayout(s.utility_layout.get());
   // sasrt-nx (2026-11-08, sasrt_gpu_depth_resolve_float_ps; the second GPU
   // round): the depth-only resolve with the shader that computes the float
@@ -19161,6 +19309,15 @@ bool ResolveDepth(HostSurface *surface, HostTexture *dest, const ClearRect &src,
 #endif
   cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
   cmd->drawInstanced(3, 1, 0, 0);
+  if (whole_same) {
+    dest->depth_resolved_clean = true;
+    dest->depth_resolved_x1 = surface->depth_dirty_x1;
+    dest->depth_resolved_y1 = surface->depth_dirty_y1;
+    dest->depth_resolved_x2 = surface->depth_dirty_x2;
+    dest->depth_resolved_y2 = surface->depth_dirty_y2;
+  } else {
+    dest->depth_resolved_clean = false;
+  }
   if (split) [[unlikely]]
     gpu_profile::Mark(s, SasrtResolvePartLabel(surface, 2));
   TransitionTextureLocked(dest, plume::RenderTextureLayout::SHADER_READ);
@@ -19454,6 +19611,7 @@ bool TakeImageLocked(HostTexture &d, HostSurface &s) {
     d.held = std::move(image);
   }
   UnhandLocked(d);
+  d.depth_resolved_clean = false;
   SwapDepthImageLocked(s, *d.held);
   d.held_current = true;
   ++g_texture_epoch;
@@ -19698,6 +19856,7 @@ bool RestoreDepthFromColorLocked(HostSurface *depth, HostSurface *color) {
   cmd->drawInstanced(3, 1, 0, 0);
   ++depth->writes;
   depth->write_seq = ++g_surface_write_seq;
+  depth->depth_dirty_tracked = false;
   // The draw path binds its own layout, pipeline, targets and viewport again.
   g_bound.framebuffer = nullptr;
   g_bound.pipeline = nullptr;

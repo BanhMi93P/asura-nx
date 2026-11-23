@@ -1888,6 +1888,7 @@ void SwapDepthImageLocked(HostSurface &surface, DepthImage &image) {
   std::swap(surface.stencil_view, image.stencil_view);
   std::swap(surface.stencil_slot, image.stencil_slot);
   std::swap(surface.handover_views, image.views);
+  surface.depth_dirty_tracked = false;
   image.host_width = surface.scale.Size(surface.width);
   image.host_height = surface.scale.Size(surface.height);
   image.format = surface.format;

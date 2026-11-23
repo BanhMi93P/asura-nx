@@ -13,7 +13,9 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
 #include <algorithm>
+#include <chrono>
 #include <string>
+#include <thread>
 
 #include <rex/chrono/chrono_steady_cast.h>
 #include <rex/cvar.h>
@@ -532,6 +534,11 @@ void RtlLeaveCriticalSection_entry(ppc_ptr_t<X_RTL_CRITICAL_SECTION> cs) {
 // sasrt-nx (2026-11-12, batch C/D, item C1; port 93): the game's leaves through a raw export, as its enters (no
 // HostToGuestFunction thunk translating the pointer on every leave); the same body as RtlLeaveCriticalSection_entry
 // (its asserts are compiled out in the release builds).
+extern "C" {
+thread_local bool g_asura_asyncio_spin_pending = false;
+thread_local uint32_t g_asura_asyncio_spin_count = 0;
+}
+
 void RtlLeaveCriticalSection_raw(PPCContext& ctx, uint8_t* base) {
   auto* cs = rex::memory::GuestPtr<X_RTL_CRITICAL_SECTION*>(base, ctx.r3.u32);
   if (--cs->recursion_count != 0) {
@@ -541,6 +548,14 @@ void RtlLeaveCriticalSection_raw(PPCContext& ctx, uint8_t* base) {
   cs->owning_thread = 0;
   if (rex::thread::atomic_dec(&cs->lock_count) != -1) {
     xeKeSetEvent(reinterpret_cast<X_KEVENT*>(cs), 1, 0);
+  }
+  if (g_asura_asyncio_spin_pending) [[unlikely]] {
+    g_asura_asyncio_spin_pending = false;
+    const uint32_t spins = ++g_asura_asyncio_spin_count;
+    if (spins >= 2u) {
+      std::this_thread::sleep_for(
+          std::chrono::microseconds(spins < 8u ? 250 : 1000));
+    }
   }
 }
 

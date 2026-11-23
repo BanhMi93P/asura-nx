@@ -135,6 +135,9 @@ struct HostSurface {
   bool clear_depth_known = false, clear_stencil_known = false;
   float clear_depth = 0.0f;
   uint32_t clear_stencil = 0;
+  // Dirty guest-pixel bounding box written since last depth=1.0 whole clear.
+  bool depth_dirty_tracked = false;
+  int32_t depth_dirty_x1 = 0, depth_dirty_y1 = 0, depth_dirty_x2 = 0, depth_dirty_y2 = 0;
   // vivapinata-nx (2026-11-04, the white fog at the cuts, ColorEdramWipedLocked): a clear through another layout wiped this
   // target's EDRAM on the console. Only a resolve can tell: one before anything writes here clears first (render/draw.cpp).
   bool edram_wiped = false;
